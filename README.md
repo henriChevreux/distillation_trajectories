@@ -1,99 +1,132 @@
-# Diffusion Model Distillation for MacOS
+# Diffusion Model Analysis Toolkit
 
-This project studies the impact of diffusion model distillation on latent trajectories, optimized for Intel MacBooks with limited computational resources.
+## Project Overview
 
-## Overview
+This project provides a comprehensive toolkit for analyzing Diffusion Models, with a focus on knowledge distillation and trajectory analysis. It supports in-depth exploration of teacher and student models trained on generative tasks.
 
-The code implements:
-1. A lightweight UNet-based diffusion model architecture
-2. Teacher-student knowledge distillation to reduce inference steps
-3. Trajectory analysis tools to compare latent space paths
-4. Visualization of how diffusion paths change through distillation
+### Key Features
+- Model analysis and comparison
+- Flexible configuration for different model parameters
+- Multiple analysis modules
+- Support for various computational devices (CUDA, MPS, CPU)
 
-## Requirements
+## Prerequisites
 
-Install the required dependencies:
+### System Requirements
+- Python 3.9+
+- PyTorch
+- CUDA or MPS (optional, but recommended for performance)
 
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/diffusion-model-analysis.git
+cd diffusion-model-analysis
+```
+
+2. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-## MPS Compatibility Issues
+## Usage
 
-This code can be run with Metal Performance Shaders (MPS) acceleration on MacOS, but there are known issues with some PyTorch operations on MPS. If you encounter errors related to MPS, you have two options:
+### Running Analysis
 
-### Option 1: Modify the source code
-Open `diffusion_distillation.py` and change:
-```python
-use_mps = False  # Change this from True to False
-```
-
-### Option 2: Use the CPU runner script
-Run the model forcibly on CPU using:
 ```bash
-python run_on_cpu.py
+python run_analysis.py [OPTIONS]
 ```
 
-## Testing
+### Command Line Options
 
-Run the test script to verify your setup:
+#### Model Selection
+- `--teacher_model`: Teacher model file (default: `model_epoch_1.pt`)
+- `--student_model`: Student model file (default: `student_model_epoch_1.pt`)
+
+#### Analysis Parameters
+- `--analysis_dir`: Directory to save analysis results (default: `analysis`)
+- `--num_samples`: Number of trajectory samples to generate (default: 5)
+
+#### Diffusion Process
+- `--teacher_steps`: Number of timesteps for teacher model (default: 50)
+- `--student_steps`: Number of timesteps for student model (default: 50)
+
+#### Analysis Module Control
+Optionally skip specific analysis modules:
+- `--skip_metrics`: Skip trajectory metrics analysis
+- `--skip_dimensionality`: Skip dimensionality reduction analysis
+- `--skip_noise`: Skip noise prediction analysis
+- `--skip_attention`: Skip attention map analysis
+- `--skip_3d`: Skip 3D visualization
+
+### Example Commands
+
+1. Full analysis with default settings:
 ```bash
-python test_diffusion.py
+python run_analysis.py
 ```
 
-The tests will check various components:
-- Model initialization
-- Diffusion parameters
-- Forward diffusion process
-- Data loading
-- Training step
-- Sampling process
-
-## Running the Full Pipeline
-
-After testing, run the full pipeline:
+2. Custom analysis with more samples and different timesteps:
 ```bash
-python diffusion_distillation.py
+python run_analysis.py --num_samples 10 --teacher_steps 100 --student_steps 50
 ```
 
-This will:
-1. Train a teacher diffusion model with 50 timesteps
-2. Distill knowledge to a student model with 10 timesteps
-3. Compare latent trajectories between models
-4. Generate visualizations in the specified directories
-
-## Output Directories
-
-- `results/`: Generated samples during training
-- `models/`: Saved model checkpoints
-- `trajectories/`: Trajectory analysis visualizations
-
-## Fine-tuning For Your Machine
-
-If you're experiencing slow performance or memory issues:
-
-1. Reduce model size:
-```python
-config.hidden_dims = [16, 32, 64]  # Smaller network
+3. Partial analysis, skipping some modules:
+```bash
+python run_analysis.py --skip_metrics --skip_3d
 ```
 
-2. Reduce diffusion steps:
-```python
-config.timesteps = 20  # Fewer steps
-config.teacher_steps = 20
-config.student_steps = 5
+## Project Structure
+
+- `run_analysis.py`: Main script for running model analysis
+- `diffusion_analysis.py`: Core analysis and model implementation
+- `models/`: Directory for trained model weights
+- `analysis/`: Output directory for analysis results
+
+## Troubleshooting
+
+### Common Issues
+- Ensure PyTorch is correctly installed with GPU support if needed
+- Check model file paths
+- Verify computational device compatibility
+
+### Device Support
+The script automatically detects and uses the best available device:
+1. CUDA (NVIDIA GPUs)
+2. MPS (Apple Silicon)
+3. CPU (Fallback)
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+## Citation
+
+If you use this toolkit in your research, please cite:
+
+```bibtex
+@misc{diffusion_analysis_toolkit,
+  title={Diffusion Model Analysis Toolkit},
+  author={Your Name},
+  year={2024}
+}
 ```
 
-3. Reduce batch size:
-```python
-config.batch_size = 32  # Smaller batches
-```
+## Contact
 
-## Analysis
-
-The trajectory analysis compares how samples evolve in latent space between the teacher and student models through:
-
-1. Direct comparisons of sample evolution
-2. L2 distance measurements between trajectories  
-3. PCA visualization of latent paths
-4. Quantitative assessment of how distillation affects the denoising process
+For questions or support, please open an issue on the GitHub repository.
