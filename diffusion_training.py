@@ -34,7 +34,7 @@ class Config:
         
         # Model
         self.latent_dim = 32
-        self.hidden_dims = [32, 64, 128]  # Smaller network for MacBook
+        self.hidden_dims = [32, 64, 128]  # Smaller network for efficiency
         
         # Diffusion process
         self.timesteps = 50  # Reduced from typical 1000 for faster computation
@@ -42,9 +42,9 @@ class Config:
         self.beta_end = 0.02
         
         # Training
-        self.epochs = 20
+        self.epochs = 2
         self.lr = 1e-4
-        self.save_interval = 5
+        self.save_interval = 1
         
         # Directories
         self.results_dir = "results"
@@ -54,14 +54,11 @@ class Config:
         # Distillation
         self.distill = True
         self.teacher_steps = 50  # Original teacher model timesteps
-        self.student_steps = 10  # Distilled student model timesteps
+        self.student_steps = 50  # Distilled student model timesteps
         
     def create_directories(self):
         for dir_path in [self.results_dir, self.models_dir, self.trajectory_dir]:
             os.makedirs(dir_path, exist_ok=True)
-
-config = Config()
-config.create_directories()
 
 # Utility functions
 def extract(a, t, x_shape):
@@ -163,9 +160,6 @@ class SimpleUNet(nn.Module):
         self.time_projections = nn.ModuleList([
             nn.Conv2d(32, dim, 1) for dim in config.hidden_dims
         ])
-        
-        # Output projection
-        self.conv_out = nn.Conv2d(config.hidden_dims[0], config.channels, 3, padding=1)
         
         # Output projection
         self.conv_out = nn.Conv2d(config.hidden_dims[0], config.channels, 3, padding=1)
@@ -339,7 +333,7 @@ def train(config, diffusion_params):
             progress_bar.set_postfix(loss=total_loss/(batch_idx+1))
         
         # Save model periodically
-        if (epoch + 1) % config.save_interval == 0:
+        if (epoch + 1) % config.save_interval == 0 or epoch == config.epochs - 1:
             torch.save(model.state_dict(), os.path.join(config.models_dir, f'model_epoch_{epoch+1}.pt'))
             
             # Generate some samples
@@ -422,9 +416,11 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             progress_bar.set_postfix(loss=total_loss/(batch_idx+1))
         
         # Save model periodically
-        if (epoch + 1) % config.save_interval == 0:
-            torch.save(student_model.state_dict(), 
-                       os.path.join(config.models_dir, f'student_model_epoch_{epoch+1}.pt'))
+        if (epoch + 1) % config.save_interval == 0 or epoch == (config.epochs // 2) - 1:
+            save_path = os.path.join(config.models_dir, f'student_model_epoch_{epoch+1}.pt')
+            print(f"Attempting to save student model to: {save_path}")
+            print(f"Epoch: {epoch}, Epochs: {config.epochs}")
+            torch.save(student_model.state_dict(), os.path.join(config.models_dir, f'student_model_epoch_{epoch+1}.pt'))
             
             # Generate some samples
             student_model.eval()
@@ -447,90 +443,13 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
     
     return student_model
 
-# Compare latent trajectories between teacher and student models
-def compare_trajectories(teacher_model, student_model, config, teacher_params, student_params):
-    """
-    Compare the latent space trajectories of teacher and student models
-    """
-    teacher_model.eval()
-    student_model.eval()
-    
-    # Generate samples with trajectory tracking
-    shape = (8, config.channels, config.image_size, config.image_size)
-    
-    # Use the same random seed for fair comparison
-    torch.manual_seed(42)
-    _, teacher_trajectory = p_sample_loop(
-        teacher_model, 
-        shape=shape,
-        timesteps=config.teacher_steps,
-        diffusion_params=teacher_params,
-        track_trajectory=True
-    )
-    
-    torch.manual_seed(42)
-    _, student_trajectory = p_sample_loop(
-        student_model, 
-        shape=shape,
-        timesteps=config.student_steps,
-        diffusion_params=student_params,
-        track_trajectory=True
-    )
-    
-    # Normalize the trajectories by the number of steps
-    # This allows us to compare trajectories of different lengths
-    teacher_milestones = np.linspace(0, len(teacher_trajectory)-1, 10).astype(int)
-    student_milestones = np.linspace(0, len(student_trajectory)-1, 10).astype(int)
-    
-    # Visualize and compare trajectories
-    fig, axs = plt.subplots(2, 5, figsize=(15, 6))
-    
-    for i, idx in enumerate(teacher_milestones[:5]):
-        img = (teacher_trajectory[idx][0] + 1) / 2
-        img = torch.clamp(img, 0, 1)
-        axs[0, i].imshow(img.permute(1, 2, 0).numpy())
-        axs[0, i].set_title(f"Teacher t={idx}")
-        axs[0, i].axis('off')
-    
-    for i, idx in enumerate(student_milestones[:5]):
-        img = (student_trajectory[idx][0] + 1) / 2
-        img = torch.clamp(img, 0, 1)
-        axs[1, i].imshow(img.permute(1, 2, 0).numpy())
-        axs[1, i].set_title(f"Student t={idx}")
-        axs[1, i].axis('off')
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(config.trajectory_dir, 'model_comparison.png'))
-    
-    # Analyze trajectory differences
-    teacher_flattened = [traj[0].reshape(-1).numpy() for traj in teacher_trajectory]
-    student_flattened = [traj[0].reshape(-1).numpy() for traj in student_trajectory]
-    
-    # Interpolate student trajectory to match teacher length for comparison
-    student_interp = []
-    for i in range(len(teacher_flattened)):
-        # Find equivalent timestep in student trajectory
-        student_idx = int(i * (len(student_flattened) / len(teacher_flattened)))
-        if student_idx >= len(student_flattened):
-            student_idx = len(student_flattened) - 1
-        student_interp.append(student_flattened[student_idx])
-    
-    # Calculate distances in latent space
-    distances = [np.linalg.norm(t - s) for t, s in zip(teacher_flattened, student_interp)]
-    
-    # Plot distances
-    plt.figure(figsize=(10, 5))
-    plt.plot(distances)
-    plt.title('L2 Distance Between Teacher and Student Trajectories')
-    plt.xlabel('Timestep')
-    plt.ylabel('L2 Distance')
-    plt.grid(True)
-    plt.savefig(os.path.join(config.trajectory_dir, 'trajectory_distances.png'))
-    
-    return teacher_trajectory, student_trajectory
-
 # Main function
 def main():
+    # Create configuration
+    global config
+    config = Config()
+    config.create_directories()
+    
     # Create diffusion parameters for both teacher and student
     teacher_params = get_diffusion_params(config.teacher_steps)
     student_params = get_diffusion_params(config.student_steps)
@@ -542,73 +461,7 @@ def main():
         print("Distilling knowledge to student model...")
         student_model = distill_diffusion_model(teacher_model, config, teacher_params, student_params)
         
-        print("Comparing latent trajectories...")
-        teacher_trajectory, student_trajectory = compare_trajectories(
-            teacher_model, student_model, config, teacher_params, student_params
-        )
-        
-        # Additional analysis: PCA visualization of trajectories
-        from sklearn.decomposition import PCA
-        
-        teacher_flat = np.array([t[0].reshape(-1).numpy() for t in teacher_trajectory])
-        student_flat = np.array([s[0].reshape(-1).numpy() for s in student_trajectory])
-        
-        # Combine for PCA
-        combined = np.vstack([teacher_flat, student_flat])
-        
-        # Apply PCA
-        pca = PCA(n_components=2)
-        pca_result = pca.fit_transform(combined)
-        
-        # Split back
-        teacher_pca = pca_result[:len(teacher_flat)]
-        student_pca = pca_result[len(teacher_flat):]
-        
-        # Interpolate student to match teacher length
-        from scipy.interpolate import interp1d
-        
-        x_teacher = np.linspace(0, 1, len(teacher_pca))
-        x_student = np.linspace(0, 1, len(student_pca))
-        
-        f_student_0 = interp1d(x_student, student_pca[:, 0], kind='linear')
-        f_student_1 = interp1d(x_student, student_pca[:, 1], kind='linear')
-        
-        student_pca_interp = np.column_stack([
-            f_student_0(x_teacher),
-            f_student_1(x_teacher)
-        ])
-        
-        # Plot
-        plt.figure(figsize=(10, 8))
-        plt.plot(teacher_pca[:, 0], teacher_pca[:, 1], 'b-', label='Teacher')
-        plt.plot(student_pca_interp[:, 0], student_pca_interp[:, 1], 'r-', label='Student (interpolated)')
-        plt.scatter(teacher_pca[0, 0], teacher_pca[0, 1], c='b', marker='o', s=100, label='Teacher start')
-        plt.scatter(teacher_pca[-1, 0], teacher_pca[-1, 1], c='b', marker='x', s=100, label='Teacher end')
-        plt.scatter(student_pca_interp[0, 0], student_pca_interp[0, 1], c='r', marker='o', s=100, label='Student start')
-        plt.scatter(student_pca_interp[-1, 0], student_pca_interp[-1, 1], c='r', marker='x', s=100, label='Student end')
-        
-        # Add arrows to show direction
-        for i in range(0, len(teacher_pca), len(teacher_pca)//10):
-            if i+1 < len(teacher_pca):
-                plt.arrow(teacher_pca[i, 0], teacher_pca[i, 1], 
-                          teacher_pca[i+1, 0]-teacher_pca[i, 0], teacher_pca[i+1, 1]-teacher_pca[i, 1],
-                          head_width=0.1, head_length=0.1, fc='b', ec='b', alpha=0.5)
-        
-        for i in range(0, len(student_pca_interp), len(student_pca_interp)//10):
-            if i+1 < len(student_pca_interp):
-                plt.arrow(student_pca_interp[i, 0], student_pca_interp[i, 1], 
-                          student_pca_interp[i+1, 0]-student_pca_interp[i, 0], 
-                          student_pca_interp[i+1, 1]-student_pca_interp[i, 1],
-                          head_width=0.1, head_length=0.1, fc='r', ec='r', alpha=0.5)
-        
-        plt.title('PCA of Latent Trajectories: Teacher vs Student')
-        plt.xlabel('Principal Component 1')
-        plt.ylabel('Principal Component 2')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(config.trajectory_dir, 'pca_trajectories.png'))
-        
-        print("Analysis complete. Results saved in the results and trajectories directories.")
+        print("Training and distillation complete. Models saved in the models directory.")
 
 if __name__ == "__main__":
     import torchvision
