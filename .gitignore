@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment - ignore everything in these directories
+venv/**/*
+env/**/*
+ENV/**/*
+.env
+.venv/**/*
+env.bak/**/*
+venv.bak/**/*
+**/venv/
+**/.venv/
+**/env/
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+.Python
+pip-selfcheck.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Project specific
+models/
+results/
+analysis/
+trajectories/
+test_results/
+test_models/
+test_trajectories/
+*.pt
+*.pth
+*.ckpt
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.npy
+*.npz
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Logs
+*.log
+logs/
+tensorboard/
+wandb/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Distribution / packaging
+*.tar.gz
+*.zip
+*.rar
+
+# Cache directories
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Diffusers cache
+.diffusers/ 
