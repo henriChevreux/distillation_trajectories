@@ -38,6 +38,11 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Model Training
+
+```bash
+python diffusion_training.py [OPTIONS]
+
 ### Running Analysis
 
 ```bash
