@@ -1,25 +1,39 @@
 # Diffusion Model Analysis Toolkit
 
-## Project Overview
+A comprehensive toolkit for analyzing diffusion models with a focus on model size impact.
 
-This project provides a comprehensive toolkit for analyzing Diffusion Models, with a primary focus on understanding how model size affects performance. Through knowledge distillation and trajectory analysis, it enables detailed comparison between teacher models and student models of varying sizes. The toolkit is specifically designed to answer the question: "How does model size impact the quality, efficiency, and behavior of diffusion models?"
+## 📋 Table of Contents
 
-### Key Features
-- **Performance analysis across model sizes**: Comprehensive comparison of metrics as model size changes
-- **Model efficiency evaluation**: Analysis of performance-to-parameter ratio for different model sizes
-- **Student models with varying architectures**: Multiple size factors from extremely small (0.01) to full-sized (1.0)
-- **Detailed comparative visualizations**: Charts, graphs, and 3D visualizations showing performance trends
-- **Comprehensive size-focused metrics**: Trajectory analysis, FID scores, and efficiency measurements
-- **Support for various computational devices**: CUDA, MPS, CPU
+- [Overview](#overview)
+- [Features](#features)
+- [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
+- [Usage Guide](#usage-guide)
+  - [Training Models](#training-models)
+  - [Running Analysis](#running-analysis)
+  - [CPU Mode](#cpu-mode)
+  - [Testing](#testing)
+- [Configuration](#configuration)
+- [Analysis Outputs](#analysis-outputs)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Citation](#citation)
 
-## Prerequisites
+## 🔍 Overview
 
-### System Requirements
-- Python 3.9+
-- PyTorch
-- CUDA or MPS (optional, but recommended for performance)
+This toolkit enables detailed comparison between teacher diffusion models and student models of varying sizes. It answers the question: "How does model size impact the quality, efficiency, and behavior of diffusion models?"
 
-### Installation
+## ✨ Features
+
+- **Performance analysis across model sizes**: Compare metrics as model size changes
+- **Model efficiency evaluation**: Analyze performance-to-parameter ratio
+- **Student models with varying architectures**: Size factors from 0.01 to 1.0
+- **Detailed visualizations**: Charts showing performance trends
+- **Comprehensive metrics**: Trajectory analysis, FID scores, efficiency measurements
+- **Multi-device support**: CUDA, MPS, CPU
+
+## 📦 Installation
 
 1. Clone the repository:
 ```bash
@@ -38,136 +52,168 @@ source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
 
-## Usage
+## 📁 Project Structure
 
-### Model Training
-
-The project supports training both teacher and student models with various configurations:
-
-```bash
-# Train teacher model (if not already trained)
-python diffusion_training.py --train_teacher
-
-# Train only student models (using existing teacher model)
-python train_students.py
+```
+distillation_trajectories/
+├── analysis/                  # Analysis modules
+│   ├── dimensionality/        # Dimensionality reduction analysis
+│   ├── metrics/               # Trajectory metrics
+│   └── ...                    # Other analysis types
+├── config/                    # Configuration
+├── data/                      # Data handling
+├── models/                    # Model definitions
+├── output/                    # All output files
+│   ├── models/                # Models directory
+│   │   ├── teacher/           # Teacher models
+│   │   └── students/          # Student models by size
+│   └── results/               # Training results
+├── scripts/                   # Executable scripts
+├── testing/                   # Testing utilities
+└── utils/                     # Utility functions
 ```
 
-### Student Model Architecture
+## 🚀 Quick Start
 
-Student models can be created with different architectures and size factors:
+Train a teacher model, then student models, and run analysis:
 
-- **Size Factors**: Range from extremely small (0.01) to full-sized (1.0)
-- **Architecture Types**:
-  - `tiny`: 2 layers instead of 3 (for very small models)
-  - `small`: 3 layers with smaller dimensions
-  - `medium`: 3 layers with 75% of teacher dimensions
-  - `full`: Same architecture as teacher
+```bash
+# Train the teacher model
+python scripts/train_teacher.py
 
-The architecture type is automatically selected based on the size factor, but maintains the same input and output dimensions as the teacher model.
+# Train student models with various size factors
+python scripts/train_students.py
+
+# Run analysis
+python scripts/run_analysis.py
+```
+
+## 📖 Usage Guide
+
+### Training Models
+
+#### Teacher Model
+
+Train the full-sized teacher diffusion model:
+
+```bash
+python scripts/train_teacher.py [OPTIONS]
+```
+
+Options:
+- `--epochs N`: Number of training epochs (default: 10)
+- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
+- `--image_size N`: Size of images (default: 16)
+- `--batch_size N`: Batch size (default: 64)
+- `--timesteps N`: Number of diffusion timesteps (default: 50)
+
+#### Student Models
+
+Train student models with various size factors:
+
+```bash
+python scripts/train_students.py [OPTIONS]
+```
+
+Options:
+- `--epochs N`: Number of training epochs (default: 5, half of teacher epochs)
+- `--custom_size_factors "0.1,0.5,0.9"`: Specific size factors to train (default: [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
+- `--image_size N`: Size of images (default: 16)
+- `--batch_size N`: Batch size (default: 64)
+
+Student models are organized by size factor and architecture type:
+- **Tiny** (< 0.1): 2 layers instead of 3
+- **Small** (0.1-0.3): 3 layers with smaller dimensions
+- **Medium** (0.3-0.7): 3 layers with 75% of teacher dimensions
+- **Full** (0.7-1.0): Same architecture as teacher
 
 ### Running Analysis
 
+Run comprehensive analysis on trained models:
+
 ```bash
-python run_analysis.py [OPTIONS]
+python scripts/run_analysis.py [OPTIONS]
 ```
 
-### Command Line Options
+Options:
+- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_1.pt")
+- `--num_samples N`: Number of trajectory samples (default: 50)
+- `--teacher_steps N`: Teacher timesteps (default: 50)
+- `--student_steps N`: Student timesteps (default: 50)
+- `--analysis_dir NAME`: Directory to save analysis results (default: "analysis")
+- `--focus_size_range "0.1-0.5"`: Focus on specific size range (default: all sizes)
+- `--compare_specific_sizes "0.1,0.5,1.0"`: Compare specific sizes (default: all sizes)
 
-#### Model Selection
-- `--teacher_model`: Teacher model file (default: `model_epoch_1.pt`)
-- `--student_model`: Student model file (default: `student_model_epoch_1.pt`)
+Skip specific analysis modules:
+- `--skip_metrics`: Skip trajectory metrics analysis (default: run this analysis)
+- `--skip_dimensionality`: Skip dimensionality reduction analysis (default: run this analysis)
+- `--skip_noise`: Skip noise prediction analysis (default: run this analysis)
+- `--skip_attention`: Skip attention map analysis (default: run this analysis)
+- `--skip_3d`: Skip 3D visualization (default: run this analysis)
+- `--skip_fid`: Skip FID calculation (default: run this analysis)
 
-#### Analysis Parameters
-- `--analysis_dir`: Directory to save analysis results (default: `analysis`)
-- `--num_samples`: Number of trajectory samples to generate (default: 50)
+### CPU Mode
 
-#### Diffusion Process
-- `--teacher_steps`: Number of timesteps for teacher model (default: 50)
-- `--student_steps`: Number of timesteps for student model (default: 50)
+Force any script to run on CPU (useful for systems without GPU):
 
-#### Analysis Module Control
-Optionally skip specific analysis modules:
-- `--skip_metrics`: Skip trajectory metrics analysis
-- `--skip_dimensionality`: Skip dimensionality reduction analysis
-- `--skip_noise`: Skip noise prediction analysis
-- `--skip_attention`: Skip attention map analysis
-- `--skip_3d`: Skip 3D visualization
-- `--skip_fid`: Skip FID calculation
-
-### Example Commands
-
-1. Train only the teacher model:
 ```bash
-python diffusion_training.py --train_teacher
+python scripts/run_on_cpu.py SCRIPT [--args "SCRIPT_ARGS"]
 ```
 
-2. Train student models using existing teacher model:
+Examples:
 ```bash
-python train_students.py
+python scripts/run_on_cpu.py train_teacher
+python scripts/run_on_cpu.py train_students --args "--custom_size_factors 0.1,0.5"
+python scripts/run_on_cpu.py run_analysis --args "--num_samples 5 --skip_fid"
 ```
 
-3. Full analysis with default settings:
+### Testing
+
+Run tests to verify the diffusion model implementation:
+
 ```bash
-python run_analysis.py
+python testing/test_diffusion.py
 ```
 
-4. Custom analysis with more samples and different timesteps:
-```bash
-python run_analysis.py --num_samples 10 --teacher_steps 100 --student_steps 50
+## ⚙️ Configuration
+
+The project uses a centralized configuration system in `config/config.py`:
+
+```python
+from config.config import Config
+
+config = Config()
+config.create_directories()  # Creates all necessary directories
+
+# Access paths
+models_dir = config.models_dir
+results_dir = config.results_dir
 ```
 
-5. Partial analysis, skipping some modules:
-```bash
-python run_analysis.py --skip_metrics --skip_3d
-```
+## 📊 Analysis Outputs
 
-## Project Structure
+All analysis results are organized in the `output/analysis/` directory:
 
-- `diffusion_training.py`: Main script for training teacher and student models
-- `train_students.py`: Script for training only student models with various size factors
-- `run_analysis.py`: Script for running model analysis
-- `diffusion_analysis.py`: Core analysis and model implementation
-- `models/`: Directory for trained model weights
-- `analysis/`: Output directory for analysis results
-- `results/`: Directory for generated samples
-- `trajectories/`: Directory for trajectory data
+- **Trajectory Metrics** (`metrics/`): Path length, Wasserstein distance, endpoint distance
+- **Comparative Visualizations** (`visualization/`): Plots showing metrics vs model size
+- **FID Scores** (`fid/`): Fréchet Inception Distance measurements
+- **Dimensionality Reduction** (`dimensionality/`): PCA, t-SNE, and UMAP projections
+- **Attention Analysis** (`attention/`): Attention map visualizations
+- **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
 
-## Analysis Outputs
+## ❓ Troubleshooting
 
-The analysis generates various visualizations and metrics:
+Common issues:
+- **GPU not detected**: Use `scripts/run_on_cpu.py` to force CPU usage
+- **Model not found**: Check paths in `config.py` and ensure models are trained
+- **Memory errors**: Reduce batch size or number of samples
 
-- **Trajectory Metrics**: Path length, Wasserstein distance, endpoint distance, path efficiency
-- **Comparative Visualizations**: Plots showing how metrics vary with model size
-- **FID Scores**: Fréchet Inception Distance between real images, teacher samples, and student samples
-- **3D Visualizations**: PCA projections of latent space trajectories
-- **Sample Comparisons**: Visual comparison of generated samples
-
-## Troubleshooting
-
-### Common Issues
-- Ensure PyTorch is correctly installed with GPU support if needed
-- Check model file paths
-- Verify computational device compatibility
-
-### Device Support
-The script automatically detects and uses the best available device:
-1. CUDA (NVIDIA GPUs)
-2. MPS (Apple Silicon)
-3. CPU (Fallback)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
-
-## License
+## 📄 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-## Citation
+## 📝 Citation
 
 If you use this toolkit in your research, please cite:
 
@@ -177,8 +223,3 @@ If you use this toolkit in your research, please cite:
   author={Your Name},
   year={2024}
 }
-```
-
-## Contact
-
-For questions or support, please open an issue on the GitHub repository.
