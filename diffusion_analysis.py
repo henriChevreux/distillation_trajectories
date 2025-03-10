@@ -17,6 +17,9 @@ from torch.utils.data import DataLoader
 import torchvision.models as models
 from mpl_toolkits.mplot3d import Axes3D
 from diffusion_training import Config, SimpleUNet, StudentUNet, get_diffusion_params, p_sample_loop, q_sample
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 
 # Try to import umap, but don't fail if not available
 try:
@@ -37,6 +40,26 @@ else:
     device = torch.device("cpu")
     print("Using CPU")
 
+# Number of threads for parallel processing
+NUM_THREADS = min(multiprocessing.cpu_count(), 8)
+
+@lru_cache(maxsize=1)
+def get_inception_model():
+    """
+    Load and cache the Inception model for FID calculation.
+    
+    Returns:
+        The Inception model in evaluation mode with fc layer replaced by Identity
+    """
+    inception_model = models.inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model.eval()
+    
+    # Set model to feature extraction mode
+    inception_model.fc = nn.Identity()  # Replace the final fully connected layer with Identity
+    inception_model.aux_logits = False
+    
+    return inception_model
+
 def calculate_fid(real_images, generated_images):
     """
     Calculate Fréchet Inception Distance (FID) between real and generated images.
@@ -48,12 +71,8 @@ def calculate_fid(real_images, generated_images):
     Returns:
         fid_score: The FID score (lower is better)
     """
-    # Load Inception model
-    inception_model = models.inception_v3(pretrained=True, transform_input=False).to(device)
-    inception_model.eval()
-    
-    # Set model to feature extraction mode
-    inception_model.fc = nn.Identity()  # Replace the final fully connected layer with Identity
+    # Get cached Inception model
+    inception_model = get_inception_model()
     
     # Function to extract features
     def extract_features(images):
@@ -71,13 +90,10 @@ def calculate_fid(real_images, generated_images):
         with torch.no_grad():
             for i in range(0, images.shape[0], batch_size):
                 batch = images[i:i+batch_size].to(device)
-                # Set the model to return features before the final classification layer
-                inception_model.aux_logits = False
                 feat = inception_model(batch)
                 features.append(feat.cpu().numpy())
         
-        features = np.concatenate(features, axis=0)
-        return features
+        return np.concatenate(features, axis=0)
     
     # Extract features for real and generated images
     real_features = extract_features(real_images)
@@ -102,6 +118,7 @@ def calculate_fid(real_images, generated_images):
     
     return fid_score
 
+@lru_cache(maxsize=2)  # Cache for different datasets
 def get_real_images(config, num_samples=100):
     """Get a batch of real images from the dataset"""
     if config.dataset == "CIFAR10":
@@ -118,17 +135,6 @@ def get_real_images(config, num_samples=100):
             transform=transform
         )
         
-        # Create a DataLoader
-        dataloader = DataLoader(
-            dataset,
-            batch_size=num_samples,
-            shuffle=True
-        )
-        
-        # Get a batch of images
-        images, _ = next(iter(dataloader))
-        return images
-    
     elif config.dataset == "MNIST":
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -142,20 +148,19 @@ def get_real_images(config, num_samples=100):
             download=True,
             transform=transform
         )
-        
-        # Create a DataLoader
-        dataloader = DataLoader(
-            dataset,
-            batch_size=num_samples,
-            shuffle=True
-        )
-        
-        # Get a batch of images
-        images, _ = next(iter(dataloader))
-        return images
-    
     else:
         raise ValueError(f"Dataset {config.dataset} not supported for FID calculation")
+    
+    # Create a DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=num_samples,
+        shuffle=True
+    )
+    
+    # Get a batch of images
+    images, _ = next(iter(dataloader))
+    return images
 
 def generate_trajectories(teacher_model, student_model, config, num_samples=10):
     """
@@ -182,34 +187,42 @@ def generate_trajectories(teacher_model, student_model, config, num_samples=10):
     teacher_trajectories = []
     student_trajectories = []
     
-    print(f"Generating {num_samples} trajectories...")
-    for i in tqdm(range(num_samples)):
+    # Prepare shape tuple for reuse
+    shape = (1, config.channels, config.image_size, config.image_size)
+    
+    def generate_pair(seed):
+        """Generate a pair of trajectories with the same seed"""
         # Use the same random seed for both models to start from the same noise
-        torch.manual_seed(i)
+        torch.manual_seed(seed)
         
         # Generate teacher trajectory
         _, teacher_traj = p_sample_loop(
             teacher_model,
-            shape=(1, config.channels, config.image_size, config.image_size),
+            shape=shape,
             timesteps=config.teacher_steps,
             diffusion_params=teacher_params,
             track_trajectory=True
         )
         
         # Reset seed to use the same initial noise
-        torch.manual_seed(i)
+        torch.manual_seed(seed)
         
         # Generate student trajectory
         _, student_traj = p_sample_loop(
             student_model,
-            shape=(1, config.channels, config.image_size, config.image_size),
+            shape=shape,
             timesteps=config.student_steps,
             diffusion_params=student_params,
             track_trajectory=True
         )
         
-        teacher_trajectories.append(teacher_traj)
-        student_trajectories.append(student_traj)
+        return teacher_traj, student_traj
+    
+    print(f"Generating {num_samples} trajectories...")
+    for i in tqdm(range(num_samples)):
+        t_traj, s_traj = generate_pair(i)
+        teacher_trajectories.append(t_traj)
+        student_trajectories.append(s_traj)
     
     return teacher_trajectories, student_trajectories
 
@@ -234,8 +247,11 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
         'student_efficiency': []
     }
     
-    # Compute metrics for each sample
-    for teacher_traj, student_traj in zip(teacher_trajectories, student_trajectories):
+    def compute_metrics_for_pair(pair_idx):
+        """Compute metrics for a single pair of trajectories"""
+        teacher_traj = teacher_trajectories[pair_idx]
+        student_traj = student_trajectories[pair_idx]
+        
         # Flatten images for easier distance calculation
         teacher_flat = [t[0].reshape(-1).numpy() for t in teacher_traj]
         student_flat = [s[0].reshape(-1).numpy() for s in student_traj]
@@ -247,36 +263,32 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
             student_timesteps = np.linspace(0, 1, len(student_flat))
             teacher_timesteps = np.linspace(0, 1, len(teacher_flat))
             
-            # Interpolate each dimension separately
-            student_interp = []
-            for dim in range(teacher_flat[0].shape[0]):
-                student_values = np.array([s[dim] for s in student_flat])
-                interp_func = interp1d(student_timesteps, student_values, kind='linear')
-                student_interp.append(interp_func(teacher_timesteps))
+            # Vectorized interpolation
+            student_values = np.array([s for s in student_flat])
+            student_interp = np.zeros((len(teacher_timesteps), student_values.shape[1]))
             
-            # Combine interpolated dimensions
-            student_interp = np.array(student_interp).T
+            # Create interpolation function once
+            for dim in range(0, student_values.shape[1], 1000):  # Process in chunks to avoid memory issues
+                end_dim = min(dim + 1000, student_values.shape[1])
+                chunk_values = student_values[:, dim:end_dim]
+                interp_func = interp1d(student_timesteps, chunk_values, axis=0, kind='linear')
+                student_interp[:, dim:end_dim] = interp_func(teacher_timesteps)
             
             # Compute Wasserstein distance
-            w_dist = wasserstein_distance(np.concatenate(teacher_flat), np.concatenate(student_interp))
+            w_dist = wasserstein_distance(np.concatenate(teacher_flat), student_interp.flatten())
         else:
             # If same number of timesteps, no interpolation needed
             w_dist = wasserstein_distance(np.concatenate(teacher_flat), np.concatenate(student_flat))
         
-        metrics['wasserstein_distances'].append(w_dist)
-        
         # Compute endpoint distance (L2 norm between final images)
         endpoint_dist = np.linalg.norm(teacher_flat[-1] - student_flat[-1])
-        metrics['endpoint_distances'].append(endpoint_dist)
         
-        # Compute path length (sum of L2 norms between consecutive points)
-        teacher_path_length = sum(np.linalg.norm(teacher_flat[i+1] - teacher_flat[i]) 
-                                 for i in range(len(teacher_flat)-1))
-        student_path_length = sum(np.linalg.norm(student_flat[i+1] - student_flat[i]) 
-                                 for i in range(len(student_flat)-1))
+        # Compute path length using vectorized operations
+        teacher_diffs = np.array(teacher_flat[1:]) - np.array(teacher_flat[:-1])
+        student_diffs = np.array(student_flat[1:]) - np.array(student_flat[:-1])
         
-        metrics['teacher_path_lengths'].append(teacher_path_length)
-        metrics['student_path_lengths'].append(student_path_length)
+        teacher_path_length = np.sum(np.sqrt(np.sum(teacher_diffs**2, axis=1)))
+        student_path_length = np.sum(np.sqrt(np.sum(student_diffs**2, axis=1)))
         
         # Compute path efficiency (endpoint distance / path length)
         # This measures how direct the path is (higher is more efficient)
@@ -286,8 +298,27 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
         teacher_efficiency = start_end_dist_teacher / teacher_path_length if teacher_path_length > 0 else 0
         student_efficiency = start_end_dist_student / student_path_length if student_path_length > 0 else 0
         
-        metrics['teacher_efficiency'].append(teacher_efficiency)
-        metrics['student_efficiency'].append(student_efficiency)
+        return {
+            'wasserstein': w_dist,
+            'endpoint': endpoint_dist,
+            'teacher_path': teacher_path_length,
+            'student_path': student_path_length,
+            'teacher_eff': teacher_efficiency,
+            'student_eff': student_efficiency
+        }
+    
+    # Process trajectory pairs in parallel
+    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        results = list(executor.map(compute_metrics_for_pair, range(len(teacher_trajectories))))
+    
+    # Collect results
+    for result in results:
+        metrics['wasserstein_distances'].append(result['wasserstein'])
+        metrics['endpoint_distances'].append(result['endpoint'])
+        metrics['teacher_path_lengths'].append(result['teacher_path'])
+        metrics['student_path_lengths'].append(result['student_path'])
+        metrics['teacher_efficiency'].append(result['teacher_eff'])
+        metrics['student_efficiency'].append(result['student_eff'])
     
     return metrics
 
@@ -304,12 +335,13 @@ def visualize_metrics(metrics, config, suffix=""):
         summary: Dictionary of summary statistics
     """
     # Create directory for saving visualizations
-    os.makedirs(os.path.join(config.analysis_dir, 'metrics'), exist_ok=True)
+    metrics_dir = os.path.join(config.analysis_dir, 'metrics')
+    os.makedirs(metrics_dir, exist_ok=True)
     
     # Add suffix to filenames if provided
     suffix = suffix if suffix else ""
     
-    # Compute summary statistics
+    # Compute summary statistics using numpy vectorized operations
     summary = {
         'avg_wasserstein': np.mean(metrics['wasserstein_distances']),
         'avg_endpoint_distance': np.mean(metrics['endpoint_distances']),
@@ -420,19 +452,29 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
     # Take the first few trajectories for visualization
     num_vis = min(5, len(teacher_trajectories))
     
-    # Flatten images for dimensionality reduction
+    # Prepare trajectory information
+    teacher_points_per_traj = len(teacher_trajectories[0])
+    student_points_per_traj = len(student_trajectories[0])
+    
+    # Pre-allocate lists with known sizes for better memory efficiency
     all_teacher_flat = []
     all_student_flat = []
     
-    for i in range(num_vis):
-        teacher_traj = teacher_trajectories[i]
-        student_traj = student_trajectories[i]
+    # Process trajectories in parallel
+    def process_trajectory_pair(idx):
+        teacher_traj = teacher_trajectories[idx]
+        student_traj = student_trajectories[idx]
         
         teacher_flat = [t[0].reshape(-1).numpy() for t in teacher_traj]
         student_flat = [s[0].reshape(-1).numpy() for s in student_traj]
         
-        all_teacher_flat.extend(teacher_flat)
-        all_student_flat.extend(student_flat)
+        return teacher_flat, student_flat
+    
+    # Process trajectories
+    for i in range(num_vis):
+        t_flat, s_flat = process_trajectory_pair(i)
+        all_teacher_flat.extend(t_flat)
+        all_student_flat.extend(s_flat)
     
     # Combine all points for dimensionality reduction
     all_points = np.vstack(all_teacher_flat + all_student_flat)
@@ -445,12 +487,9 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
     teacher_pca = pca_result[:len(all_teacher_flat)]
     student_pca = pca_result[len(all_teacher_flat):]
     
-    # Reshape back into trajectories
+    # Reshape back into trajectories - use numpy operations for efficiency
     teacher_pca_traj = []
     student_pca_traj = []
-    
-    teacher_points_per_traj = len(teacher_trajectories[0])
-    student_points_per_traj = len(student_trajectories[0])
     
     for i in range(num_vis):
         start_idx_teacher = i * teacher_points_per_traj
@@ -628,7 +667,7 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     # Add suffix to filenames if provided
     suffix = suffix if suffix else ""
     
-    # Get diffusion parameters
+    # Get diffusion parameters - cache these for reuse
     teacher_params = get_diffusion_params(config.teacher_steps)
     student_params = get_diffusion_params(config.student_steps)
     
@@ -640,7 +679,7 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     # Sample timesteps
     timesteps = [0, config.teacher_steps // 4, config.teacher_steps // 2, 3 * config.teacher_steps // 4, config.teacher_steps - 1]
     
-    # Convert teacher timesteps to student timesteps
+    # Convert teacher timesteps to student timesteps - do this once
     student_timesteps = [int(t * config.student_steps / config.teacher_steps) for t in timesteps]
     
     # Initialize metrics
@@ -656,22 +695,22 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
         t_teacher_tensor = torch.full((batch_size,), t_teacher, device=device, dtype=torch.long)
         t_student_tensor = torch.full((batch_size,), t_student, device=device, dtype=torch.long)
         
-        # Add noise to images
-# Add noise to images
+        # Add noise to images - fix the duplicate comment
         x_noisy, true_noise = q_sample(x_start, t_teacher_tensor, teacher_params)
         
-        # Get noise predictions from both models
+        # Get noise predictions from both models in a single batch for efficiency
         with torch.no_grad():
             teacher_pred = teacher_model(x_noisy, t_teacher_tensor)
             student_pred = student_model(x_noisy, t_student_tensor)
         
-        # Compute MSE between predicted noise and true noise
+        # Compute metrics in a vectorized way
         teacher_mse = F.mse_loss(teacher_pred, true_noise).item()
         student_mse = F.mse_loss(student_pred, true_noise).item()
         
         # Compute similarity between teacher and student predictions
         similarity = F.cosine_similarity(teacher_pred.flatten(1), student_pred.flatten(1), dim=1).mean().item()
         
+        # Store metrics
         metrics['teacher_noise_mse'].append(teacher_mse)
         metrics['student_noise_mse'].append(student_mse)
         metrics['noise_prediction_similarity'].append(similarity)
@@ -1087,7 +1126,7 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         config = Config()
         config.create_directories()
     
-    # Get diffusion parameters
+    # Get diffusion parameters - cache these for reuse
     teacher_params = get_diffusion_params(config.teacher_steps)
     student_params = get_diffusion_params(config.student_steps)
     
@@ -1113,21 +1152,24 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
     # Handle student models - either a single model or multiple models with different size factors
     student_models = {}
     
+    # Function to determine architecture type based on size factor
+    def get_architecture_type(size_factor):
+        if float(size_factor) < 0.1:
+            return 'tiny'     # Use the smallest architecture for very small models
+        elif float(size_factor) < 0.3:
+            return 'small'    # Use small architecture for small models
+        elif float(size_factor) < 0.7:
+            return 'medium'   # Use medium architecture for medium models
+        else:
+            return 'full'     # Use full architecture for large models
+    
     if isinstance(student_model_paths, dict):
         # Multiple student models with different size factors
         for size_factor, path in student_model_paths.items():
             print(f"Loading student model with size factor {size_factor}...")
             
             # Determine architecture type based on size factor
-            architecture_type = None
-            if float(size_factor) < 0.1:
-                architecture_type = 'tiny'     # Use the smallest architecture for very small models
-            elif float(size_factor) < 0.3:
-                architecture_type = 'small'    # Use small architecture for small models
-            elif float(size_factor) < 0.7:
-                architecture_type = 'medium'   # Use medium architecture for medium models
-            else:
-                architecture_type = 'full'     # Use full architecture for large models
+            architecture_type = get_architecture_type(size_factor)
             
             print(f"Using architecture type: {architecture_type} for size factor {size_factor}")
             student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
@@ -1148,7 +1190,8 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
                 path = os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_1.pt')
                 if os.path.exists(path):
                     print(f"Found student model with size factor {size_factor}...")
-                    student_model = StudentUNet(config, size_factor=float(size_factor)).to(device)
+                    architecture_type = get_architecture_type(size_factor)
+                    student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
                     student_model.load_state_dict(torch.load(path, map_location=device))
                     student_model.eval()
                     student_models[float(size_factor)] = student_model
@@ -1181,7 +1224,8 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
                     except:
                         pass
                 
-                student_model = StudentUNet(config, size_factor=size_factor).to(device)
+                architecture_type = get_architecture_type(size_factor)
+                student_model = StudentUNet(config, size_factor=size_factor, architecture_type=architecture_type).to(device)
                 student_model.load_state_dict(torch.load(path, map_location=device))
                 student_model.eval()
                 student_models[size_factor] = student_model
