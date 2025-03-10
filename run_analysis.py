@@ -112,7 +112,7 @@ def main():
     student_model_paths = {}
     
     # Define the size factors we expect to find (from the Config class in diffusion_training.py)
-    expected_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    expected_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.25, 0.5, 0.75, 1.0]
     
     # Filter by focus range if specified
     if args.focus_size_range:

@@ -58,8 +58,8 @@ class Config:
         
         # Student model size variants (scaling factors relative to teacher)
         # These define how much smaller the student models will be
-        # Using many small steps for smoother plots, starting from extremely small models
-        self.student_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        # Using fewer steps in the 0.1 to 1.0 range for exploratory analysis
+        self.student_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.25, 0.5, 0.75, 1.0]
         
         # Student model architecture variants
         # These define how many hidden dimensions to use in the student model

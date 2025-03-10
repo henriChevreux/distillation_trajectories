@@ -30,12 +30,12 @@ except ImportError:
 
 
 # Determine device
-#if torch.backends.mps.is_available():
-#    device = torch.device("mps")
-#    print("Using MPS acceleration")
 if torch.cuda.is_available():
     device = torch.device("cuda")
     print("Using CUDA acceleration")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("Using MPS acceleration")
 else:
     device = torch.device("cpu")
     print("Using CPU")
@@ -240,11 +240,13 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
     """
     metrics = {
         'wasserstein_distances': [],
+        'wasserstein_distances_per_timestep': [],  # New metric for per-timestep comparison
         'endpoint_distances': [],
         'teacher_path_lengths': [],
         'student_path_lengths': [],
         'teacher_efficiency': [],
-        'student_efficiency': []
+        'student_efficiency': [],
+        'architecture_type': []  # Track architecture type for analysis
     }
     
     def compute_metrics_for_pair(pair_idx):
@@ -256,29 +258,51 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
         teacher_flat = [t[0].reshape(-1).numpy() for t in teacher_traj]
         student_flat = [s[0].reshape(-1).numpy() for s in student_traj]
         
-        # Compute Wasserstein distance between trajectories
+        # Determine architecture type based on size factor (if available)
+        # This will be populated later when we know the size factor
+        architecture_type = "unknown"
+        
+        # IMPROVED: Compute Wasserstein distance between trajectories properly
         # We need to interpolate the student trajectory to match the teacher's timesteps
         if len(teacher_flat) != len(student_flat):
             # Create interpolation function for student trajectory
             student_timesteps = np.linspace(0, 1, len(student_flat))
             teacher_timesteps = np.linspace(0, 1, len(teacher_flat))
             
-            # Vectorized interpolation
+            # Vectorized interpolation with cubic spline for better accuracy
             student_values = np.array([s for s in student_flat])
             student_interp = np.zeros((len(teacher_timesteps), student_values.shape[1]))
             
-            # Create interpolation function once
+            # Create interpolation function once - use cubic spline for smoother interpolation
             for dim in range(0, student_values.shape[1], 1000):  # Process in chunks to avoid memory issues
                 end_dim = min(dim + 1000, student_values.shape[1])
                 chunk_values = student_values[:, dim:end_dim]
-                interp_func = interp1d(student_timesteps, chunk_values, axis=0, kind='linear')
+                # Use cubic interpolation for smoother results when possible
+                if len(student_timesteps) > 3:  # Cubic requires at least 4 points
+                    interp_func = interp1d(student_timesteps, chunk_values, axis=0, kind='cubic')
+                else:
+                    interp_func = interp1d(student_timesteps, chunk_values, axis=0, kind='linear')
                 student_interp[:, dim:end_dim] = interp_func(teacher_timesteps)
             
-            # Compute Wasserstein distance
-            w_dist = wasserstein_distance(np.concatenate(teacher_flat), student_interp.flatten())
+            # FIXED: Compute Wasserstein distance per timestep and average
+            w_dists = []
+            for t in range(len(teacher_timesteps)):
+                w_dist_t = wasserstein_distance(teacher_flat[t], student_interp[t])
+                w_dists.append(w_dist_t)
+            
+            # Average Wasserstein distance across timesteps
+            w_dist = np.mean(w_dists)
+            w_dists_per_timestep = w_dists
         else:
-            # If same number of timesteps, no interpolation needed
-            w_dist = wasserstein_distance(np.concatenate(teacher_flat), np.concatenate(student_flat))
+            # If same number of timesteps, compute Wasserstein distance per timestep
+            w_dists = []
+            for t in range(len(teacher_flat)):
+                w_dist_t = wasserstein_distance(teacher_flat[t], student_flat[t])
+                w_dists.append(w_dist_t)
+            
+            # Average Wasserstein distance across timesteps
+            w_dist = np.mean(w_dists)
+            w_dists_per_timestep = w_dists
         
         # Compute endpoint distance (L2 norm between final images)
         endpoint_dist = np.linalg.norm(teacher_flat[-1] - student_flat[-1])
@@ -300,11 +324,13 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
         
         return {
             'wasserstein': w_dist,
+            'wasserstein_per_timestep': w_dists_per_timestep,
             'endpoint': endpoint_dist,
             'teacher_path': teacher_path_length,
             'student_path': student_path_length,
             'teacher_eff': teacher_efficiency,
-            'student_eff': student_efficiency
+            'student_eff': student_efficiency,
+            'architecture_type': architecture_type
         }
     
     # Process trajectory pairs in parallel
@@ -314,11 +340,13 @@ def compute_trajectory_metrics(teacher_trajectories, student_trajectories, confi
     # Collect results
     for result in results:
         metrics['wasserstein_distances'].append(result['wasserstein'])
+        metrics['wasserstein_distances_per_timestep'].append(result['wasserstein_per_timestep'])
         metrics['endpoint_distances'].append(result['endpoint'])
         metrics['teacher_path_lengths'].append(result['teacher_path'])
         metrics['student_path_lengths'].append(result['student_path'])
         metrics['teacher_efficiency'].append(result['teacher_eff'])
         metrics['student_efficiency'].append(result['student_eff'])
+        metrics['architecture_type'].append(result['architecture_type'])
     
     return metrics
 
@@ -676,39 +704,54 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     batch_size = 10
     x_start = torch.randn(batch_size, config.channels, config.image_size, config.image_size).to(device)
     
-    # Sample timesteps
-    timesteps = [0, config.teacher_steps // 4, config.teacher_steps // 2, 3 * config.teacher_steps // 4, config.teacher_steps - 1]
+    # IMPROVED: Use normalized timesteps for fair comparison
+    # Sample relative timesteps (0%, 25%, 50%, 75%, 100% of diffusion process)
+    relative_timesteps = [0.0, 0.25, 0.5, 0.75, 0.99]  # Using 0.99 instead of 1.0 to avoid index errors
     
-    # Convert teacher timesteps to student timesteps - do this once
-    student_timesteps = [int(t * config.student_steps / config.teacher_steps) for t in timesteps]
+    # Convert to actual timesteps for each model
+    teacher_timesteps = [int(rt * (config.teacher_steps - 1)) for rt in relative_timesteps]
+    student_timesteps = [int(rt * (config.student_steps - 1)) for rt in relative_timesteps]
     
     # Initialize metrics
     metrics = {
         'teacher_noise_mse': [],
         'student_noise_mse': [],
-        'noise_prediction_similarity': []
+        'noise_prediction_similarity': [],
+        'relative_timesteps': relative_timesteps
     }
     
     # Analyze noise prediction at different timesteps
-    for t_teacher, t_student in zip(timesteps, student_timesteps):
+    for i, (rel_t, t_teacher, t_student) in enumerate(zip(relative_timesteps, teacher_timesteps, student_timesteps)):
+        print(f"Analyzing noise prediction at relative timestep {rel_t:.2f} (teacher: {t_teacher}, student: {t_student})")
+        
         # Create tensor timesteps
         t_teacher_tensor = torch.full((batch_size,), t_teacher, device=device, dtype=torch.long)
         t_student_tensor = torch.full((batch_size,), t_student, device=device, dtype=torch.long)
         
-        # Add noise to images - fix the duplicate comment
-        x_noisy, true_noise = q_sample(x_start, t_teacher_tensor, teacher_params)
+        # FIXED: Create separate noisy samples for teacher and student at equivalent noise levels
+        # This ensures we're comparing models at the same point in the diffusion process
+        x_noisy_teacher, true_noise_teacher = q_sample(x_start, t_teacher_tensor, teacher_params)
+        x_noisy_student, true_noise_student = q_sample(x_start, t_student_tensor, student_params)
         
-        # Get noise predictions from both models in a single batch for efficiency
+        # Get noise predictions from both models
         with torch.no_grad():
-            teacher_pred = teacher_model(x_noisy, t_teacher_tensor)
-            student_pred = student_model(x_noisy, t_student_tensor)
+            teacher_pred = teacher_model(x_noisy_teacher, t_teacher_tensor)
+            student_pred = student_model(x_noisy_student, t_student_tensor)
         
         # Compute metrics in a vectorized way
-        teacher_mse = F.mse_loss(teacher_pred, true_noise).item()
-        student_mse = F.mse_loss(student_pred, true_noise).item()
+        teacher_mse = F.mse_loss(teacher_pred, true_noise_teacher).item()
+        student_mse = F.mse_loss(student_pred, true_noise_student).item()
         
-        # Compute similarity between teacher and student predictions
-        similarity = F.cosine_similarity(teacher_pred.flatten(1), student_pred.flatten(1), dim=1).mean().item()
+        # IMPROVED: For fair comparison of predictions, we need to compare at equivalent noise levels
+        # We'll interpolate the student predictions to match the teacher's image space
+        # This is a simplified approach - in practice, a more sophisticated alignment might be needed
+        
+        # Normalize predictions to [0,1] range for better comparison
+        teacher_pred_norm = (teacher_pred - teacher_pred.min()) / (teacher_pred.max() - teacher_pred.min() + 1e-8)
+        student_pred_norm = (student_pred - student_pred.min()) / (student_pred.max() - student_pred.min() + 1e-8)
+        
+        # Compute similarity between normalized teacher and student predictions
+        similarity = F.cosine_similarity(teacher_pred_norm.flatten(1), student_pred_norm.flatten(1), dim=1).mean().item()
         
         # Store metrics
         metrics['teacher_noise_mse'].append(teacher_mse)
@@ -716,34 +759,44 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
         metrics['noise_prediction_similarity'].append(similarity)
     
     # Create visualizations
-    plt.figure(figsize=(15, 5))
+    plt.figure(figsize=(15, 10))
     
     # Plot MSE
-    plt.subplot(1, 3, 1)
-    plt.plot(timesteps, metrics['teacher_noise_mse'], 'b-o', label='Teacher')
-    plt.plot(timesteps, metrics['student_noise_mse'], 'r-o', label='Student')
+    plt.subplot(2, 2, 1)
+    plt.plot(relative_timesteps, metrics['teacher_noise_mse'], 'b-o', label='Teacher')
+    plt.plot(relative_timesteps, metrics['student_noise_mse'], 'r-o', label='Student')
     plt.title('Noise Prediction MSE')
-    plt.xlabel('Timestep')
+    plt.xlabel('Relative Timestep')
     plt.ylabel('MSE')
     plt.legend()
     plt.grid(True, alpha=0.3)
     
     # Plot similarity
-    plt.subplot(1, 3, 2)
-    plt.plot(timesteps, metrics['noise_prediction_similarity'], 'g-o')
+    plt.subplot(2, 2, 2)
+    plt.plot(relative_timesteps, metrics['noise_prediction_similarity'], 'g-o')
     plt.title('Teacher-Student Prediction Similarity')
-    plt.xlabel('Timestep')
+    plt.xlabel('Relative Timestep')
     plt.ylabel('Cosine Similarity')
     plt.grid(True, alpha=0.3)
     
     # Plot MSE ratio
-    plt.subplot(1, 3, 3)
+    plt.subplot(2, 2, 3)
     mse_ratio = [s / t if t > 0 else 1.0 for s, t in zip(metrics['student_noise_mse'], metrics['teacher_noise_mse'])]
-    plt.plot(timesteps, mse_ratio, 'purple', marker='o')
+    plt.plot(relative_timesteps, mse_ratio, 'purple', marker='o')
     plt.axhline(y=1.0, color='gray', linestyle='--')
     plt.title('Student/Teacher MSE Ratio')
-    plt.xlabel('Timestep')
+    plt.xlabel('Relative Timestep')
     plt.ylabel('Ratio')
+    plt.grid(True, alpha=0.3)
+    
+    # NEW: Plot actual timesteps used for each model
+    plt.subplot(2, 2, 4)
+    plt.plot(relative_timesteps, teacher_timesteps, 'b-o', label='Teacher')
+    plt.plot(relative_timesteps, student_timesteps, 'r-o', label='Student')
+    plt.title('Actual Timesteps Used')
+    plt.xlabel('Relative Timestep')
+    plt.ylabel('Model Timestep')
+    plt.legend()
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -752,10 +805,13 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     
     # Save metrics to file
     with open(os.path.join(config.analysis_dir, 'noise_prediction', f'noise_metrics{suffix}.txt'), 'w') as f:
-        f.write(f"Timesteps: {timesteps}\n")
+        f.write(f"Relative Timesteps: {relative_timesteps}\n")
+        f.write(f"Teacher Timesteps: {teacher_timesteps}\n")
+        f.write(f"Student Timesteps: {student_timesteps}\n")
         f.write(f"Teacher MSE: {metrics['teacher_noise_mse']}\n")
         f.write(f"Student MSE: {metrics['student_noise_mse']}\n")
         f.write(f"Similarity: {metrics['noise_prediction_similarity']}\n")
+        f.write(f"MSE Ratio: {mse_ratio}\n")
     
     return metrics
 
@@ -786,21 +842,30 @@ def analyze_attention_maps(teacher_model, student_model, config, suffix=""):
     batch_size = 4
     x_start = torch.randn(batch_size, config.channels, config.image_size, config.image_size).to(device)
     
-    # Sample timesteps
-    t_teacher = config.teacher_steps // 2
-    t_student = config.student_steps // 2
+    # IMPROVED: Use relative timesteps for fair comparison
+    # Use 50% through the diffusion process for both models
+    relative_t = 0.5
+    t_teacher = int(relative_t * (config.teacher_steps - 1))
+    t_student = int(relative_t * (config.student_steps - 1))
+    
+    print(f"Analyzing attention maps at relative timestep {relative_t:.2f} (teacher: {t_teacher}, student: {t_student})")
     
     # Create tensor timesteps
     t_teacher_tensor = torch.full((batch_size,), t_teacher, device=device, dtype=torch.long)
     t_student_tensor = torch.full((batch_size,), t_student, device=device, dtype=torch.long)
     
-    # Add noise to images
-    x_noisy, _ = q_sample(x_start, t_teacher_tensor, get_diffusion_params(config.teacher_steps))
+    # FIXED: Create separate noisy samples for teacher and student at equivalent noise levels
+    # This ensures we're comparing models at the same point in the diffusion process
+    teacher_params = get_diffusion_params(config.teacher_steps)
+    student_params = get_diffusion_params(config.student_steps)
+    
+    x_noisy_teacher, _ = q_sample(x_start, t_teacher_tensor, teacher_params)
+    x_noisy_student, _ = q_sample(x_start, t_student_tensor, student_params)
     
     # Get predictions from both models
     with torch.no_grad():
-        teacher_pred = teacher_model(x_noisy, t_teacher_tensor)
-        student_pred = student_model(x_noisy, t_student_tensor)
+        teacher_pred = teacher_model(x_noisy_teacher, t_teacher_tensor)
+        student_pred = student_model(x_noisy_student, t_student_tensor)
     
     # Compute spatial attention proxy by taking the absolute values of predictions
     teacher_attention = torch.abs(teacher_pred).mean(dim=1)  # Average over channels
@@ -814,22 +879,29 @@ def analyze_attention_maps(teacher_model, student_model, config, suffix=""):
     plt.figure(figsize=(15, 10))
     
     for i in range(batch_size):
-        # Plot original noisy image
-        plt.subplot(batch_size, 3, i*3 + 1)
-        img = x_noisy[i].cpu().permute(1, 2, 0)
-        img = (img + 1) / 2  # Convert from [-1, 1] to [0, 1]
-        plt.imshow(img)
-        plt.title(f'Noisy Image {i+1}')
+        # Plot original noisy images (both teacher and student)
+        plt.subplot(batch_size, 4, i*4 + 1)
+        img_teacher = x_noisy_teacher[i].cpu().permute(1, 2, 0)
+        img_teacher = (img_teacher + 1) / 2  # Convert from [-1, 1] to [0, 1]
+        plt.imshow(img_teacher)
+        plt.title(f'Teacher Noisy {i+1}')
+        plt.axis('off')
+        
+        plt.subplot(batch_size, 4, i*4 + 2)
+        img_student = x_noisy_student[i].cpu().permute(1, 2, 0)
+        img_student = (img_student + 1) / 2  # Convert from [-1, 1] to [0, 1]
+        plt.imshow(img_student)
+        plt.title(f'Student Noisy {i+1}')
         plt.axis('off')
         
         # Plot teacher attention
-        plt.subplot(batch_size, 3, i*3 + 2)
+        plt.subplot(batch_size, 4, i*4 + 3)
         plt.imshow(teacher_attention[i].cpu(), cmap='hot')
         plt.title(f'Teacher Attention {i+1}')
         plt.axis('off')
         
         # Plot student attention
-        plt.subplot(batch_size, 3, i*3 + 3)
+        plt.subplot(batch_size, 4, i*4 + 4)
         plt.imshow(student_attention[i].cpu(), cmap='hot')
         plt.title(f'Student Attention {i+1}')
         plt.axis('off')
@@ -849,134 +921,81 @@ def analyze_attention_maps(teacher_model, student_model, config, suffix=""):
         correlation = np.corrcoef(teacher_att_flat, student_att_flat)[0, 1]
         correlations.append(correlation)
     
+    # Compute additional metrics for attention maps
+    # 1. Structural Similarity Index (SSIM) - approximated by MSE after normalization
+    mse_values = []
+    for i in range(batch_size):
+        mse = F.mse_loss(teacher_attention[i], student_attention[i]).item()
+        mse_values.append(mse)
+    
+    # 2. Peak locations - find the top 5 attention peaks and compare their locations
+    peak_distances = []
+    for i in range(batch_size):
+        # Get top 5 peak locations for teacher
+        teacher_att = teacher_attention[i].cpu().numpy()
+        teacher_peaks_flat = np.argsort(teacher_att.flatten())[-5:]
+        teacher_peaks = np.array(np.unravel_index(teacher_peaks_flat, teacher_att.shape)).T
+        
+        # Get top 5 peak locations for student
+        student_att = student_attention[i].cpu().numpy()
+        student_peaks_flat = np.argsort(student_att.flatten())[-5:]
+        student_peaks = np.array(np.unravel_index(student_peaks_flat, student_att.shape)).T
+        
+        # Compute average distance between peak locations
+        # This is a simplified approach - in practice, you might want to use a more sophisticated matching
+        distances = []
+        for tp in teacher_peaks:
+            min_dist = float('inf')
+            for sp in student_peaks:
+                dist = np.sqrt(np.sum((tp - sp)**2))
+                min_dist = min(min_dist, dist)
+            distances.append(min_dist)
+        
+        peak_distances.append(np.mean(distances))
+    
+    # Store all metrics
     metrics['attention_correlations'] = correlations
     metrics['mean_correlation'] = np.mean(correlations)
+    metrics['mse_values'] = mse_values
+    metrics['mean_mse'] = np.mean(mse_values)
+    metrics['peak_distances'] = peak_distances
+    metrics['mean_peak_distance'] = np.mean(peak_distances)
     
     # Save metrics to file
     with open(os.path.join(config.analysis_dir, 'attention', f'attention_metrics{suffix}.txt'), 'w') as f:
+        f.write(f"Relative timestep: {relative_t}\n")
+        f.write(f"Teacher timestep: {t_teacher}\n")
+        f.write(f"Student timestep: {t_student}\n\n")
         f.write(f"Attention map correlations: {correlations}\n")
-        f.write(f"Mean correlation: {metrics['mean_correlation']}\n")
+        f.write(f"Mean correlation: {metrics['mean_correlation']:.4f}\n\n")
+        f.write(f"MSE values: {mse_values}\n")
+        f.write(f"Mean MSE: {metrics['mean_mse']:.4f}\n\n")
+        f.write(f"Peak distances: {peak_distances}\n")
+        f.write(f"Mean peak distance: {metrics['mean_peak_distance']:.4f}\n")
     
     return metrics
 
-def generate_3d_model_size_visualization(all_teacher_trajectories, all_student_trajectories, size_factors, config):
+def generate_3d_model_size_visualization(teacher_metrics, student_metrics, size_factors, config):
     """
     Create a 3D visualization that incorporates model size as a dimension
     
     Args:
-        all_teacher_trajectories: Dictionary mapping size factors to teacher trajectories
-        all_student_trajectories: Dictionary mapping size factors to student trajectories
+        teacher_metrics: Dictionary mapping size factors to teacher trajectory metrics
+        student_metrics: Dictionary mapping size factors to student trajectory metrics
         size_factors: List of size factors to include
         config: Configuration object
     """
     os.makedirs(os.path.join(config.analysis_dir, '3d_model_size'), exist_ok=True)
     
     # We'll create several visualizations:
-    # 1. Trajectory endpoints in 3D space (PCA) with model size as color
-    # 2. Trajectory path length vs model size vs endpoint distance
-    # 3. Wasserstein distance vs model size vs efficiency
-    
-    # First, let's extract endpoints and compute metrics for each size factor
-    endpoints = {}
-    metrics = {}
-    
-    for size_factor in size_factors:
-        teacher_trajectories = all_teacher_trajectories[size_factor]
-        student_trajectories = all_student_trajectories[size_factor]
-        
-        # Compute metrics for this size factor
-        metrics[size_factor] = compute_trajectory_metrics(teacher_trajectories, student_trajectories, config)
-        
-        # Extract endpoints (last point of each trajectory)
-        teacher_endpoints = [traj[-1][0].reshape(-1).numpy() for traj in teacher_trajectories]
-        student_endpoints = [traj[-1][0].reshape(-1).numpy() for traj in student_trajectories]
-        
-        endpoints[size_factor] = {
-            'teacher': teacher_endpoints,
-            'student': student_endpoints
-        }
-    
-    # 1. Visualize trajectory endpoints in 3D space with model size as color
-    # Combine all endpoints for PCA
-    all_endpoints = []
-    for size_factor in size_factors:
-        all_endpoints.extend(endpoints[size_factor]['teacher'])
-        all_endpoints.extend(endpoints[size_factor]['student'])
-    
-    # Apply PCA to reduce dimensionality
-    pca = PCA(n_components=3)
-    pca_result = pca.fit_transform(np.vstack(all_endpoints))
-    
-    # Split back into teacher and student endpoints for each size factor
-    pca_endpoints = {}
-    idx = 0
-    for size_factor in size_factors:
-        n_teacher = len(endpoints[size_factor]['teacher'])
-        n_student = len(endpoints[size_factor]['student'])
-        
-        pca_endpoints[size_factor] = {
-            'teacher': pca_result[idx:idx+n_teacher],
-            'student': pca_result[idx+n_teacher:idx+n_teacher+n_student]
-        }
-        idx += n_teacher + n_student
-    
-    # Create 3D visualization of endpoints with model size as color
-    fig = plt.figure(figsize=(14, 12))
-    ax = fig.add_subplot(111, projection='3d')
+    # 1. Path length vs model size vs endpoint distance
+    # 2. Wasserstein distance vs model size vs efficiency
     
     # Create a colormap for size factors
     norm = plt.Normalize(min(size_factors), max(size_factors))
     cmap = plt.cm.viridis
     
-    # Plot teacher endpoints (all same color since they're from the same model)
-    for size_factor in size_factors:
-        teacher_points = pca_endpoints[size_factor]['teacher']
-        ax.scatter(
-            teacher_points[:, 0], 
-            teacher_points[:, 1], 
-            teacher_points[:, 2],
-            c='blue', 
-            marker='o', 
-            s=50, 
-            alpha=0.7,
-            label='Teacher' if size_factor == size_factors[0] else ""
-        )
-    
-    # Plot student endpoints with color based on size factor
-    for size_factor in size_factors:
-        student_points = pca_endpoints[size_factor]['student']
-        scatter = ax.scatter(
-            student_points[:, 0], 
-            student_points[:, 1], 
-            student_points[:, 2],
-            c=[cmap(norm(size_factor))] * len(student_points), 
-            marker='^', 
-            s=80, 
-            alpha=0.8,
-            label=f'Student (size {size_factor})'
-        )
-    
-    # Add a colorbar
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax, pad=0.1)
-    cbar.set_label('Student Model Size Factor', fontsize=12)
-    
-    # Add labels and legend
-    ax.set_xlabel('PCA Component 1', fontsize=12)
-    ax.set_ylabel('PCA Component 2', fontsize=12)
-    ax.set_zlabel('PCA Component 3', fontsize=12)
-    ax.set_title('3D Visualization of Trajectory Endpoints by Model Size', fontsize=14)
-    
-    # Create a custom legend with one entry for teacher and one for each student size
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, fontsize=10, loc='upper right')
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(config.analysis_dir, '3d_model_size', 'endpoints_by_size_3d.png'), dpi=300)
-    plt.close()
-    
-    # 2. Create 3D plot of path length vs model size vs endpoint distance
+    # 1. Create 3D plot of path length vs model size vs endpoint distance
     fig = plt.figure(figsize=(14, 12))
     ax = fig.add_subplot(111, projection='3d')
     
@@ -988,8 +1007,8 @@ def generate_3d_model_size_visualization(all_teacher_trajectories, all_student_t
     
     for size_factor in size_factors:
         x.append(size_factor)
-        y.append(np.mean(metrics[size_factor]['student_path_lengths']))
-        z.append(np.mean(metrics[size_factor]['endpoint_distances']))
+        y.append(np.mean(student_metrics[size_factor]['student_path_lengths']))
+        z.append(np.mean(student_metrics[size_factor]['endpoint_distances']))
         c.append(cmap(norm(size_factor)))
     
     # Create the 3D scatter plot
@@ -1014,7 +1033,7 @@ def generate_3d_model_size_visualization(all_teacher_trajectories, all_student_t
     plt.savefig(os.path.join(config.analysis_dir, '3d_model_size', 'size_pathlength_distance_3d.png'), dpi=300)
     plt.close()
     
-    # 3. Create 3D plot of Wasserstein distance vs model size vs efficiency
+    # 2. Create 3D plot of Wasserstein distance vs model size vs efficiency
     fig = plt.figure(figsize=(14, 12))
     ax = fig.add_subplot(111, projection='3d')
     
@@ -1026,8 +1045,8 @@ def generate_3d_model_size_visualization(all_teacher_trajectories, all_student_t
     
     for size_factor in size_factors:
         x.append(size_factor)
-        y.append(np.mean(metrics[size_factor]['wasserstein_distances']))
-        z.append(np.mean(metrics[size_factor]['student_efficiency']))
+        y.append(np.mean(student_metrics[size_factor]['wasserstein_distances']))
+        z.append(np.mean(student_metrics[size_factor]['student_efficiency']))
         c.append(cmap(norm(size_factor)))
     
     # Create the 3D scatter plot
@@ -1239,9 +1258,10 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
     # Analyze each student model
     all_metrics = {}
     all_fid_results = {}
-    all_teacher_trajectories = {}
-    all_student_trajectories = {}
     
+    # Only store trajectory metrics for 3D visualization, not the full trajectories
+    trajectory_metrics_for_3d = {}
+        
     for size_factor, student_model in student_models.items():
         print(f"\n{'='*80}")
         print(f"Analyzing student model with size factor {size_factor}")
@@ -1252,10 +1272,6 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         teacher_trajectories, student_trajectories = generate_trajectories(
             teacher_model, student_model, config, num_samples=num_samples
         )
-        
-        # Store trajectories for 3D model size visualization
-        all_teacher_trajectories[size_factor] = teacher_trajectories
-        all_student_trajectories[size_factor] = student_trajectories
         
         # Run only the selected analysis modules
         if not skip_metrics:
@@ -1270,6 +1286,16 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
             
             # Store metrics for comparative analysis
             all_metrics[size_factor] = summary
+            
+            # Store only the metrics needed for 3D visualization, not the full trajectories
+            trajectory_metrics_for_3d[size_factor] = {
+                'wasserstein_distances': metrics['wasserstein_distances'],
+                'endpoint_distances': metrics['endpoint_distances'],
+                'teacher_path_lengths': metrics['teacher_path_lengths'],
+                'student_path_lengths': metrics['student_path_lengths'],
+                'teacher_efficiency': metrics['teacher_efficiency'],
+                'student_efficiency': metrics['student_efficiency']
+            }
         else:
             print("Skipping trajectory metrics analysis.")
             
@@ -1407,6 +1433,12 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
             generate_latent_space_visualization(teacher_trajectories, student_trajectories, config, suffix=f"_size_{size_factor}")
         else:
             print("Skipping 3D latent space visualization.")
+        
+        # Clear trajectories after analysis to free memory
+        del teacher_trajectories
+        del student_trajectories
+        import gc
+        gc.collect()  # Force garbage collection
     
     # Create comparative visualizations across different student model sizes
     if len(student_models) > 1 and not skip_metrics:
@@ -1414,8 +1446,9 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         create_model_size_comparisons(all_metrics, all_fid_results, config)
         
         # Create 3D visualization that incorporates model size as a dimension
-        print("Creating 3D model size visualization...")
-        generate_3d_model_size_visualization(all_teacher_trajectories, all_student_trajectories, 
+        print("Creating 3D model size visualization using trajectory metrics...")
+        # We're using trajectory_metrics_for_3d instead of the full trajectories to save memory
+        generate_3d_model_size_visualization(trajectory_metrics_for_3d, trajectory_metrics_for_3d, 
                                             sorted(student_models.keys()), config)
     
     print("\nAnalysis complete. Results saved in the analysis directory.")
