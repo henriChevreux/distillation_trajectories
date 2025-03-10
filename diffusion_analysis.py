@@ -20,6 +20,8 @@ from diffusion_training import Config, SimpleUNet, StudentUNet, get_diffusion_pa
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
+import h5py
+from trajectory_manager import TrajectoryManager
 
 # Try to import umap, but don't fail if not available
 try:
@@ -225,6 +227,83 @@ def generate_trajectories(teacher_model, student_model, config, num_samples=10):
         student_trajectories.append(s_traj)
     
     return teacher_trajectories, student_trajectories
+
+def generate_trajectories_with_disk_storage(teacher_model, student_model, config, size_factor=None, num_samples=10):
+    """
+    Generate trajectories for both teacher and student models and store them on disk.
+    
+    Args:
+        teacher_model: The teacher diffusion model
+        student_model: The student diffusion model
+        config: Configuration object
+        size_factor: Size factor of the student model (for organizing data)
+        num_samples: Number of samples to generate
+    
+    Returns:
+        trajectory_manager: TrajectoryManager instance with stored trajectories
+    """
+    # Initialize TrajectoryManager
+    trajectory_manager = TrajectoryManager(config)
+    
+    # Get diffusion parameters
+    teacher_params = get_diffusion_params(config.teacher_steps)
+    student_params = get_diffusion_params(config.student_steps)
+    
+    # Prepare shape tuple for reuse
+    shape = (1, config.channels, config.image_size, config.image_size)
+    
+    # Generate trajectories in small batches to avoid memory issues
+    batch_size = 5  # Process 5 trajectories at a time
+    num_batches = (num_samples + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, num_samples)
+        batch_size_actual = end_idx - start_idx
+        
+        print(f"Generating batch {batch_idx+1}/{num_batches} with {batch_size_actual} trajectories...")
+        
+        # Generate trajectories for this batch
+        teacher_trajectories = []
+        student_trajectories = []
+        
+        for i in tqdm(range(start_idx, end_idx)):
+            # Use the same random seed for both models to start from the same noise
+            torch.manual_seed(i)
+            
+            # Generate teacher trajectory
+            _, teacher_traj = p_sample_loop(
+                teacher_model,
+                shape=shape,
+                timesteps=config.teacher_steps,
+                diffusion_params=teacher_params,
+                track_trajectory=True
+            )
+            
+            # Reset seed to use the same initial noise
+            torch.manual_seed(i)
+            
+            # Generate student trajectory
+            _, student_traj = p_sample_loop(
+                student_model,
+                shape=shape,
+                timesteps=config.student_steps,
+                diffusion_params=student_params,
+                track_trajectory=True
+            )
+            
+            teacher_trajectories.append(teacher_traj)
+            student_trajectories.append(student_traj)
+        
+        # Store this batch of trajectories to disk
+        trajectory_manager.store_trajectories(teacher_trajectories, student_trajectories, size_factor)
+        
+        # Clear memory
+        import gc
+        gc.collect()  # Force garbage collection
+    
+    return trajectory_manager
+
 
 def compute_trajectory_metrics(teacher_trajectories, student_trajectories, config):
     """
@@ -1268,16 +1347,16 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         print(f"{'='*80}")
         
         # 1. Generate multiple trajectories
-        print("Generating trajectories...")
-        teacher_trajectories, student_trajectories = generate_trajectories(
-            teacher_model, student_model, config, num_samples=num_samples
+        print("Generating trajectories and storing on disk...")
+        trajectory_manager = generate_trajectories_with_disk_storage(
+            teacher_model, student_model, config, size_factor, num_samples=num_samples
         )
         
         # Run only the selected analysis modules
         if not skip_metrics:
-            # 2. Compute trajectory metrics
+            # 2. Compute trajectory metrics in batches
             print("Computing trajectory metrics...")
-            metrics = compute_trajectory_metrics(teacher_trajectories, student_trajectories, config)
+            metrics = trajectory_manager.compute_trajectory_metrics_batch(size_factor=size_factor)
             
             # 3. Visualize metrics
             print("Visualizing metrics...")
@@ -1409,7 +1488,12 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         if not skip_dimensionality:
             # 4. Dimensionality reduction analysis
             print("Performing dimensionality reduction analysis...")
-            dimensionality_reduction_analysis(teacher_trajectories, student_trajectories, config, suffix=f"_size_{size_factor}")
+            # Load a subset of trajectories just for this analysis
+            teacher_subset, student_subset = trajectory_manager.load_trajectories(
+                size_factor=size_factor, 
+                indices=list(range(min(5, num_samples)))  # Use at most 5 trajectories
+                )
+            dimensionality_reduction_analysis(teacher_subset, student_subset, config, suffix=f"_size_{size_factor}")
         else:
             print("Skipping dimensionality reduction analysis.")
         
@@ -1430,13 +1514,16 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         if not skip_3d:
             # 7. Generate 3D latent space visualization
             print("Creating 3D latent space visualization...")
-            generate_latent_space_visualization(teacher_trajectories, student_trajectories, config, suffix=f"_size_{size_factor}")
+            # Load just one trajectory for 3D visualization
+            teacher_viz, student_viz = trajectory_manager.load_trajectories(
+                size_factor=size_factor, 
+                indices=[0]  # Just use the first trajectory
+                )
+            generate_latent_space_visualization(teacher_viz, student_viz, config, suffix=f"_size_{size_factor}")
         else:
             print("Skipping 3D latent space visualization.")
         
         # Clear trajectories after analysis to free memory
-        del teacher_trajectories
-        del student_trajectories
         import gc
         gc.collect()  # Force garbage collection
     
