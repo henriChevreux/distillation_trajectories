@@ -107,6 +107,7 @@ def get_real_images(config, num_samples=100):
     if config.dataset == "CIFAR10":
         transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Resize((config.image_size, config.image_size)),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
         
@@ -131,6 +132,7 @@ def get_real_images(config, num_samples=100):
     elif config.dataset == "MNIST":
         transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Resize((config.image_size, config.image_size)),
             transforms.Normalize((0.5,), (0.5,))
         ])
         
@@ -655,6 +657,7 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
         t_student_tensor = torch.full((batch_size,), t_student, device=device, dtype=torch.long)
         
         # Add noise to images
+# Add noise to images
         x_noisy, true_noise = q_sample(x_start, t_teacher_tensor, teacher_params)
         
         # Get noise predictions from both models
@@ -817,6 +820,250 @@ def analyze_attention_maps(teacher_model, student_model, config, suffix=""):
     
     return metrics
 
+def generate_3d_model_size_visualization(all_teacher_trajectories, all_student_trajectories, size_factors, config):
+    """
+    Create a 3D visualization that incorporates model size as a dimension
+    
+    Args:
+        all_teacher_trajectories: Dictionary mapping size factors to teacher trajectories
+        all_student_trajectories: Dictionary mapping size factors to student trajectories
+        size_factors: List of size factors to include
+        config: Configuration object
+    """
+    os.makedirs(os.path.join(config.analysis_dir, '3d_model_size'), exist_ok=True)
+    
+    # We'll create several visualizations:
+    # 1. Trajectory endpoints in 3D space (PCA) with model size as color
+    # 2. Trajectory path length vs model size vs endpoint distance
+    # 3. Wasserstein distance vs model size vs efficiency
+    
+    # First, let's extract endpoints and compute metrics for each size factor
+    endpoints = {}
+    metrics = {}
+    
+    for size_factor in size_factors:
+        teacher_trajectories = all_teacher_trajectories[size_factor]
+        student_trajectories = all_student_trajectories[size_factor]
+        
+        # Compute metrics for this size factor
+        metrics[size_factor] = compute_trajectory_metrics(teacher_trajectories, student_trajectories, config)
+        
+        # Extract endpoints (last point of each trajectory)
+        teacher_endpoints = [traj[-1][0].reshape(-1).numpy() for traj in teacher_trajectories]
+        student_endpoints = [traj[-1][0].reshape(-1).numpy() for traj in student_trajectories]
+        
+        endpoints[size_factor] = {
+            'teacher': teacher_endpoints,
+            'student': student_endpoints
+        }
+    
+    # 1. Visualize trajectory endpoints in 3D space with model size as color
+    # Combine all endpoints for PCA
+    all_endpoints = []
+    for size_factor in size_factors:
+        all_endpoints.extend(endpoints[size_factor]['teacher'])
+        all_endpoints.extend(endpoints[size_factor]['student'])
+    
+    # Apply PCA to reduce dimensionality
+    pca = PCA(n_components=3)
+    pca_result = pca.fit_transform(np.vstack(all_endpoints))
+    
+    # Split back into teacher and student endpoints for each size factor
+    pca_endpoints = {}
+    idx = 0
+    for size_factor in size_factors:
+        n_teacher = len(endpoints[size_factor]['teacher'])
+        n_student = len(endpoints[size_factor]['student'])
+        
+        pca_endpoints[size_factor] = {
+            'teacher': pca_result[idx:idx+n_teacher],
+            'student': pca_result[idx+n_teacher:idx+n_teacher+n_student]
+        }
+        idx += n_teacher + n_student
+    
+    # Create 3D visualization of endpoints with model size as color
+    fig = plt.figure(figsize=(14, 12))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Create a colormap for size factors
+    norm = plt.Normalize(min(size_factors), max(size_factors))
+    cmap = plt.cm.viridis
+    
+    # Plot teacher endpoints (all same color since they're from the same model)
+    for size_factor in size_factors:
+        teacher_points = pca_endpoints[size_factor]['teacher']
+        ax.scatter(
+            teacher_points[:, 0], 
+            teacher_points[:, 1], 
+            teacher_points[:, 2],
+            c='blue', 
+            marker='o', 
+            s=50, 
+            alpha=0.7,
+            label='Teacher' if size_factor == size_factors[0] else ""
+        )
+    
+    # Plot student endpoints with color based on size factor
+    for size_factor in size_factors:
+        student_points = pca_endpoints[size_factor]['student']
+        scatter = ax.scatter(
+            student_points[:, 0], 
+            student_points[:, 1], 
+            student_points[:, 2],
+            c=[cmap(norm(size_factor))] * len(student_points), 
+            marker='^', 
+            s=80, 
+            alpha=0.8,
+            label=f'Student (size {size_factor})'
+        )
+    
+    # Add a colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, pad=0.1)
+    cbar.set_label('Student Model Size Factor', fontsize=12)
+    
+    # Add labels and legend
+    ax.set_xlabel('PCA Component 1', fontsize=12)
+    ax.set_ylabel('PCA Component 2', fontsize=12)
+    ax.set_zlabel('PCA Component 3', fontsize=12)
+    ax.set_title('3D Visualization of Trajectory Endpoints by Model Size', fontsize=14)
+    
+    # Create a custom legend with one entry for teacher and one for each student size
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, fontsize=10, loc='upper right')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(config.analysis_dir, '3d_model_size', 'endpoints_by_size_3d.png'), dpi=300)
+    plt.close()
+    
+    # 2. Create 3D plot of path length vs model size vs endpoint distance
+    fig = plt.figure(figsize=(14, 12))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Extract metrics for the plot
+    x = []  # size factors
+    y = []  # avg path lengths
+    z = []  # avg endpoint distances
+    c = []  # colors (same as size factor for visual consistency)
+    
+    for size_factor in size_factors:
+        x.append(size_factor)
+        y.append(np.mean(metrics[size_factor]['student_path_lengths']))
+        z.append(np.mean(metrics[size_factor]['endpoint_distances']))
+        c.append(cmap(norm(size_factor)))
+    
+    # Create the 3D scatter plot
+    scatter = ax.scatter(x, y, z, c=c, s=100, alpha=0.8)
+    
+    # Connect points with a line to show the trend
+    ax.plot(x, y, z, 'k--', alpha=0.5)
+    
+    # Add labels
+    ax.set_xlabel('Model Size Factor', fontsize=12)
+    ax.set_ylabel('Average Path Length', fontsize=12)
+    ax.set_zlabel('Average Endpoint Distance', fontsize=12)
+    ax.set_title('Model Size vs Path Length vs Endpoint Distance', fontsize=14)
+    
+    # Add a colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, pad=0.1)
+    cbar.set_label('Student Model Size Factor', fontsize=12)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(config.analysis_dir, '3d_model_size', 'size_pathlength_distance_3d.png'), dpi=300)
+    plt.close()
+    
+    # 3. Create 3D plot of Wasserstein distance vs model size vs efficiency
+    fig = plt.figure(figsize=(14, 12))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Extract metrics for the plot
+    x = []  # size factors
+    y = []  # avg wasserstein distances
+    z = []  # avg efficiency
+    c = []  # colors (same as size factor for visual consistency)
+    
+    for size_factor in size_factors:
+        x.append(size_factor)
+        y.append(np.mean(metrics[size_factor]['wasserstein_distances']))
+        z.append(np.mean(metrics[size_factor]['student_efficiency']))
+        c.append(cmap(norm(size_factor)))
+    
+    # Create the 3D scatter plot
+    scatter = ax.scatter(x, y, z, c=c, s=100, alpha=0.8)
+    
+    # Connect points with a line to show the trend
+    ax.plot(x, y, z, 'k--', alpha=0.5)
+    
+    # Add labels
+    ax.set_xlabel('Model Size Factor', fontsize=12)
+    ax.set_ylabel('Average Wasserstein Distance', fontsize=12)
+    ax.set_zlabel('Average Path Efficiency', fontsize=12)
+    ax.set_title('Model Size vs Wasserstein Distance vs Efficiency', fontsize=14)
+    
+    # Add a colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, pad=0.1)
+    cbar.set_label('Student Model Size Factor', fontsize=12)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(config.analysis_dir, '3d_model_size', 'size_wasserstein_efficiency_3d.png'), dpi=300)
+    plt.close()
+
+def generate_latent_space_visualization(teacher_trajectories, student_trajectories, config, suffix=""):
+    """Create a 3D visualization of trajectories over time"""
+    os.makedirs(os.path.join(config.analysis_dir, '3d_visualization'), exist_ok=True)
+    
+    # Add suffix to filenames if provided
+    suffix = suffix if suffix else ""
+    
+    # Take the first sample
+    teacher_traj = teacher_trajectories[0]
+    student_traj = student_trajectories[0]
+    
+    # Flatten trajectories
+    teacher_flat = [t[0].reshape(-1).numpy() for t in teacher_traj]
+    student_flat = [s[0].reshape(-1).numpy() for s in student_traj]
+    
+    # Combine for PCA
+    combined = np.vstack([teacher_flat, student_flat])
+    
+    # Apply PCA
+    pca = PCA(n_components=3)
+    pca_result = pca.fit_transform(combined)
+    
+    # Split back
+    teacher_pca = pca_result[:len(teacher_flat)]
+    student_pca = pca_result[len(teacher_flat):]
+    
+    # Create 3D plot
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot teacher trajectory
+    ax.plot(teacher_pca[:, 0], teacher_pca[:, 1], teacher_pca[:, 2], 'b-', linewidth=2, label='Teacher')
+    ax.scatter(teacher_pca[0, 0], teacher_pca[0, 1], teacher_pca[0, 2], c='blue', marker='o', s=100, label='Teacher start')
+    ax.scatter(teacher_pca[-1, 0], teacher_pca[-1, 1], teacher_pca[-1, 2], c='darkblue', marker='x', s=100, label='Teacher end')
+    
+    # Plot student trajectory
+    ax.plot(student_pca[:, 0], student_pca[:, 1], student_pca[:, 2], 'r-', linewidth=2, label='Student')
+    ax.scatter(student_pca[0, 0], student_pca[0, 1], student_pca[0, 2], c='orange', marker='o', s=100, label='Student start')
+    ax.scatter(student_pca[-1, 0], student_pca[-1, 1], student_pca[-1, 2], c='darkred', marker='x', s=100, label='Student end')
+    
+    # Add labels and legend
+    ax.set_xlabel('PCA Component 1')
+    ax.set_ylabel('PCA Component 2')
+    ax.set_zlabel('PCA Component 3')
+    ax.set_title(f'3D Latent Space Visualization of Diffusion Trajectories', fontsize=14)
+    ax.legend()
+    
+    # Save figure
+    plt.savefig(os.path.join(config.analysis_dir, '3d_visualization', f'latent_space_3d{suffix}.png'), dpi=300)
+    plt.close()
+
 def main(config=None, teacher_model_path=None, student_model_paths=None, num_samples=50, 
          skip_metrics=False, skip_dimensionality=False, skip_noise=False, 
          skip_attention=False, skip_3d=False, skip_fid=False):
@@ -948,6 +1195,8 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
     # Analyze each student model
     all_metrics = {}
     all_fid_results = {}
+    all_teacher_trajectories = {}
+    all_student_trajectories = {}
     
     for size_factor, student_model in student_models.items():
         print(f"\n{'='*80}")
@@ -959,6 +1208,10 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
         teacher_trajectories, student_trajectories = generate_trajectories(
             teacher_model, student_model, config, num_samples=num_samples
         )
+        
+        # Store trajectories for 3D model size visualization
+        all_teacher_trajectories[size_factor] = teacher_trajectories
+        all_student_trajectories[size_factor] = student_trajectories
         
         # Run only the selected analysis modules
         if not skip_metrics:
@@ -1115,6 +1368,11 @@ def main(config=None, teacher_model_path=None, student_model_paths=None, num_sam
     if len(student_models) > 1 and not skip_metrics:
         print("\nCreating comparative visualizations across student model sizes...")
         create_model_size_comparisons(all_metrics, all_fid_results, config)
+        
+        # Create 3D visualization that incorporates model size as a dimension
+        print("Creating 3D model size visualization...")
+        generate_3d_model_size_visualization(all_teacher_trajectories, all_student_trajectories, 
+                                            sorted(student_models.keys()), config)
     
     print("\nAnalysis complete. Results saved in the analysis directory.")
 
@@ -1488,35 +1746,3 @@ def create_model_size_comparisons(all_metrics, all_fid_results, config):
 
 if __name__ == "__main__":
     main()
-
-def generate_latent_space_visualization(teacher_trajectories, student_trajectories, config, suffix=""):
-    """Create a 3D visualization of trajectories over time"""
-    os.makedirs(os.path.join(config.analysis_dir, '3d_visualization'), exist_ok=True)
-    
-    # Add suffix to filenames if provided
-    suffix = suffix if suffix else ""
-    
-    # Take the first sample
-    teacher_traj = teacher_trajectories[0]
-    student_traj = student_trajectories[0]
-    
-    # Flatten trajectories
-    teacher_flat = [t[0].reshape(-1).numpy() for t in teacher_traj]
-    student_flat = [s[0].reshape(-1).numpy() for s in student_traj]
-    
-    # Combine for PCA
-    combined = np.vstack([teacher_flat, student_flat])
-    
-    # Apply PCA
-    pca = PCA(n_components=3)
-    pca_result = pca.fit_transform(combined)
-    
-    # Split back
-    teacher_pca = pca_result[:len(teacher_flat)]
-    student_pca = pca_result[len(teacher_flat):]
-    
-    # Create 3D plot
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Plot teacher trajectory

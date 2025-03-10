@@ -28,7 +28,7 @@ class Config:
     def __init__(self):
         # Dataset
         self.dataset = "CIFAR10"  # Using CIFAR10 instead of MNIST
-        self.image_size = 32  # CIFAR10 images are 32x32
+        self.image_size = 16  # Reduced from 32x32 to 16x16 for faster training
         self.channels = 3  # CIFAR10 has RGB channels
         self.batch_size = 64
         
@@ -42,7 +42,7 @@ class Config:
         self.beta_end = 0.02
         
         # Training
-        self.epochs = 2
+        self.epochs = 10
         self.lr = 1e-4
         self.save_interval = 1
         
@@ -339,8 +339,10 @@ class StudentUNet(nn.Module):
 def get_data_loader(config):
     if config.dataset == "CIFAR10":
         # For CIFAR10, we need to normalize with the appropriate mean and std for RGB
+        # Also resize from 32x32 to 16x16 for faster training
         transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Resize((config.image_size, config.image_size)),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
         
@@ -362,8 +364,10 @@ def get_data_loader(config):
         
         return train_loader
     elif config.dataset == "MNIST":
+        # Also resize MNIST images to match the configured image size
         transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Resize((config.image_size, config.image_size)),
             transforms.Normalize((0.5,), (0.5,))
         ])
         
@@ -404,12 +408,13 @@ def p_losses(denoise_model, x_start, t, diffusion_params, noise=None):
     """
     Calculate loss for training the denoising model
     """
-    if noise is None:
-        noise = torch.randn_like(x_start)
-        
-    x_noisy, _ = q_sample(x_start, t, diffusion_params)
+    # Generate noisy image and get the noise that was used
+    x_noisy, noise = q_sample(x_start, t, diffusion_params)
+    
+    # Predict the noise
     predicted_noise = denoise_model(x_noisy, t)
     
+    # Calculate loss using the actual noise that was added
     loss = F.mse_loss(predicted_noise, noise)
     return loss
 
