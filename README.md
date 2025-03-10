@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-This project provides a comprehensive toolkit for analyzing Diffusion Models, with a focus on knowledge distillation and trajectory analysis. It supports in-depth exploration of teacher and student models trained on generative tasks, with particular emphasis on studying the impact of model size and architecture on performance.
+This project provides a comprehensive toolkit for analyzing Diffusion Models, with a primary focus on understanding how model size affects performance. Through knowledge distillation and trajectory analysis, it enables detailed comparison between teacher models and student models of varying sizes. The toolkit is specifically designed to answer the question: "How does model size impact the quality, efficiency, and behavior of diffusion models?"
 
 ### Key Features
-- Model analysis and comparison across different model sizes
-- Student models with varying architectures and complexity
-- Flexible configuration for different model parameters
-- Multiple analysis modules with comparative visualizations
-- Support for various computational devices (CUDA, MPS, CPU)
+- **Performance analysis across model sizes**: Comprehensive comparison of metrics as model size changes
+- **Model efficiency evaluation**: Analysis of performance-to-parameter ratio for different model sizes
+- **Student models with varying architectures**: Multiple size factors from extremely small (0.01) to full-sized (1.0)
+- **Detailed comparative visualizations**: Charts, graphs, and 3D visualizations showing performance trends
+- **Comprehensive size-focused metrics**: Trajectory analysis, FID scores, and efficiency measurements
+- **Support for various computational devices**: CUDA, MPS, CPU
 
 ## Prerequisites
 

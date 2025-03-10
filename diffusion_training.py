@@ -82,19 +82,24 @@ def extract(a, t, x_shape):
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
-def linear_beta_schedule(timesteps):
+def linear_beta_schedule(timesteps, beta_start=1e-4, beta_end=0.02):
     """
     Linear beta schedule as proposed in the original DDPM paper
     """
     scale = 1000 / timesteps  # Scale to match typical DDPM if using fewer steps
-    beta_start = config.beta_start
-    beta_end = config.beta_end
     return torch.linspace(beta_start, beta_end, timesteps)
 
 # Set up diffusion parameters
-def get_diffusion_params(timesteps):
+def get_diffusion_params(timesteps, config=None):
     # Define beta schedule
-    betas = linear_beta_schedule(timesteps)
+    if config is not None:
+        beta_start = config.beta_start
+        beta_end = config.beta_end
+    else:
+        beta_start = 1e-4
+        beta_end = 0.02
+    
+    betas = linear_beta_schedule(timesteps, beta_start, beta_end)
     
     # Define alphas
     alphas = 1. - betas

@@ -6,7 +6,10 @@ import torch
 from diffusion_analysis import Config, main as run_analysis
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Run analysis on trained diffusion models')
+    parser = argparse.ArgumentParser(
+        description='Run analysis on diffusion models with a focus on model size impact',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     
     # Analysis parameters
     parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
@@ -25,18 +28,26 @@ def parse_args():
                         help='Number of timesteps for student model')
     
     # Analysis module selection
-    parser.add_argument('--skip_metrics', action='store_true',
+    analysis_group = parser.add_argument_group('Analysis Modules', 'Enable/disable specific analysis modules')
+    analysis_group.add_argument('--skip_metrics', action='store_true',
                         help='Skip trajectory metrics analysis')
-    parser.add_argument('--skip_dimensionality', action='store_true',
+    analysis_group.add_argument('--skip_dimensionality', action='store_true',
                         help='Skip dimensionality reduction analysis')
-    parser.add_argument('--skip_noise', action='store_true',
+    analysis_group.add_argument('--skip_noise', action='store_true',
                         help='Skip noise prediction analysis')
-    parser.add_argument('--skip_attention', action='store_true',
+    analysis_group.add_argument('--skip_attention', action='store_true',
                         help='Skip attention map analysis')
-    parser.add_argument('--skip_3d', action='store_true',
+    analysis_group.add_argument('--skip_3d', action='store_true',
                         help='Skip 3D visualization')
-    parser.add_argument('--skip_fid', action='store_true',
+    analysis_group.add_argument('--skip_fid', action='store_true',
                         help='Skip FID calculation')
+    
+    # Model size focus
+    size_group = parser.add_argument_group('Model Size Analysis', 'Options for model size comparison')
+    size_group.add_argument('--focus_size_range', type=str, default=None,
+                        help='Focus on a specific size range (e.g., "0.1-0.5")')
+    size_group.add_argument('--compare_specific_sizes', type=str, default=None,
+                        help='Compare specific size factors (comma-separated, e.g., "0.1,0.5,1.0")')
     
     return parser.parse_args()
 
@@ -75,6 +86,12 @@ def main():
     print(f"Running analysis using {device_name} device")
     
     # Print analysis configuration
+    print("\n" + "="*80)
+    print("MODEL SIZE IMPACT ANALYSIS")
+    print("="*80)
+    print("\nThis analysis focuses on how model size affects diffusion model performance.")
+    print("Multiple student models of different sizes will be compared against the teacher model.")
+    
     print("\nAnalysis Configuration:")
     print(f"Teacher model: {args.teacher_model}")
     print(f"Teacher timesteps: {args.teacher_steps}")
@@ -97,6 +114,24 @@ def main():
     # Define the size factors we expect to find (from the Config class in diffusion_training.py)
     expected_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     
+    # Filter by focus range if specified
+    if args.focus_size_range:
+        try:
+            min_size, max_size = map(float, args.focus_size_range.split('-'))
+            expected_size_factors = [sf for sf in expected_size_factors if min_size <= sf <= max_size]
+            print(f"\nFocusing on size range: {min_size} to {max_size}")
+        except:
+            print(f"\nWARNING: Invalid size range format: {args.focus_size_range}. Using all available sizes.")
+    
+    # Filter by specific sizes if specified
+    if args.compare_specific_sizes:
+        try:
+            specific_sizes = [float(sf) for sf in args.compare_specific_sizes.split(',')]
+            expected_size_factors = [sf for sf in expected_size_factors if sf in specific_sizes]
+            print(f"\nComparing specific size factors: {', '.join(map(str, specific_sizes))}")
+        except:
+            print(f"\nWARNING: Invalid specific sizes format: {args.compare_specific_sizes}. Using all available sizes.")
+    
     for size_factor in expected_size_factors:
         model_path = os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_1.pt')
         if os.path.exists(model_path):
@@ -107,25 +142,50 @@ def main():
         student_model_path = os.path.join(config.models_dir, args.student_model)
         if os.path.exists(student_model_path):
             student_model_paths = student_model_path
+            print("\nWARNING: No multiple size models found. Using a single student model.")
+            print("For a comprehensive size analysis, train multiple student models:")
+            print("\n    python train_students.py\n")
         else:
-            print(f"\nWARNING: Student model file {args.student_model} not found.")
+            print(f"\nERROR: Student model file {args.student_model} not found.")
             print("No student models found. Please run the training script with distillation first:")
-            print("\n    python diffusion_training.py\n")
+            print("\n    python train_students.py\n")
             return
     
     if isinstance(student_model_paths, dict) and not student_model_paths:
-        print("\nWARNING: No student models found. Please run the training script with distillation first:")
-        print("\n    python diffusion_training.py\n")
+        print("\nERROR: No student models found. Please run the training script with distillation first:")
+        print("\n    python train_students.py\n")
         return
     
     # Print found student models
     if isinstance(student_model_paths, dict):
-        print(f"\nFound {len(student_model_paths)} student models with size factors: {sorted(student_model_paths.keys())}")
+        size_factors = sorted(student_model_paths.keys())
+        print(f"\nFound {len(student_model_paths)} student models with size factors: {size_factors}")
+        print(f"Size range: {min(size_factors)} to {max(size_factors)}")
+        
+        # Print size distribution
+        print("\nSize distribution:")
+        size_ranges = {"Tiny (< 0.1)": 0, "Small (0.1-0.3)": 0, "Medium (0.3-0.7)": 0, "Large (0.7-1.0)": 0}
+        for sf in size_factors:
+            if sf < 0.1:
+                size_ranges["Tiny (< 0.1)"] += 1
+            elif sf < 0.3:
+                size_ranges["Small (0.1-0.3)"] += 1
+            elif sf < 0.7:
+                size_ranges["Medium (0.3-0.7)"] += 1
+            else:
+                size_ranges["Large (0.7-1.0)"] += 1
+        
+        for range_name, count in size_ranges.items():
+            print(f"  {range_name}: {count} models")
     else:
-        print(f"\nUsing student model: {args.student_model}")
+        print(f"\nUsing single student model: {args.student_model}")
+        print("Note: For a comprehensive size analysis, train multiple student models.")
     
     # Run the analysis
-    print("\nStarting analysis...\n")
+    print("\n" + "="*80)
+    print("STARTING MODEL SIZE IMPACT ANALYSIS")
+    print("="*80 + "\n")
+    
     try:
         run_analysis(config=config,
                     teacher_model_path=teacher_model_path,
