@@ -29,7 +29,9 @@ from analysis import (
     calculate_and_visualize_fid,
     analyze_time_dependent_distances,
     plot_time_dependent_grid,
-    plot_time_dependent_combined
+    plot_time_dependent_combined,
+    plot_mse_vs_size,
+    plot_metrics_vs_size
 )
 
 def parse_args():
@@ -509,6 +511,11 @@ def main():
             print("Creating time-dependent visualizations...")
             plot_time_dependent_grid(all_time_distances, config)
             plot_time_dependent_combined(all_time_distances, config)
+            
+            # Create size-dependent visualizations
+            print("Creating size-dependent visualizations...")
+            plot_mse_vs_size(all_metrics, config)
+            plot_metrics_vs_size(all_metrics, config)
         
         print("\nAnalysis complete. Results saved in the analysis directory.")
         

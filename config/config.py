@@ -48,6 +48,7 @@ class Config:
         self.noise_dir = os.path.join(self.analysis_dir, "noise")
         self.fid_dir = os.path.join(self.analysis_dir, "fid")
         self.time_dependent_dir = os.path.join(self.analysis_dir, "time_dependent")
+        self.size_dependent_dir = os.path.join(self.analysis_dir, "size_dependent")
         
         # Distillation
         self.distill = True
@@ -102,6 +103,7 @@ class Config:
             self.noise_dir,
             self.fid_dir,
             self.time_dependent_dir,
+            self.size_dependent_dir,
         ]
         
         # Create student model size directories
