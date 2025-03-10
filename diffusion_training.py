@@ -27,14 +27,14 @@ else:
 class Config:
     def __init__(self):
         # Dataset
-        self.dataset = "MNIST"  # Simple dataset to work with on limited resources
-        self.image_size = 28
-        self.channels = 1
+        self.dataset = "CIFAR10"  # Using CIFAR10 instead of MNIST
+        self.image_size = 32  # CIFAR10 images are 32x32
+        self.channels = 3  # CIFAR10 has RGB channels
         self.batch_size = 64
         
         # Model
-        self.latent_dim = 32
-        self.hidden_dims = [32, 64, 128]  # Smaller network for efficiency
+        self.latent_dim = 64  # Increased for more complex dataset
+        self.hidden_dims = [64, 128, 256]  # Larger network for RGB images
         
         # Diffusion process
         self.timesteps = 50  # Reduced from typical 1000 for faster computation
@@ -55,6 +55,21 @@ class Config:
         self.distill = True
         self.teacher_steps = 50  # Original teacher model timesteps
         self.student_steps = 50  # Distilled student model timesteps
+        
+        # Student model size variants (scaling factors relative to teacher)
+        # These define how much smaller the student models will be
+        # Using many small steps for smoother plots, starting from extremely small models
+        self.student_size_factors = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        
+        # Student model architecture variants
+        # These define how many hidden dimensions to use in the student model
+        # The teacher model uses [64, 128, 256], so these are simplified versions
+        self.student_architectures = {
+            'tiny': [32, 64],           # 2 layers instead of 3
+            'small': [32, 64, 128],     # 3 layers but smaller dimensions
+            'medium': [48, 96, 192],    # 3 layers with 75% of teacher dimensions
+            'full': [64, 128, 256]      # Same as teacher
+        }
         
     def create_directories(self):
         for dir_path in [self.results_dir, self.models_dir, self.trajectory_dir]:
@@ -196,9 +211,154 @@ class SimpleUNet(nn.Module):
         x = self.conv_out(x)
         return x
 
+# Student U-Net with adjustable size and architecture
+class StudentUNet(nn.Module):
+    def __init__(self, config, size_factor=0.5, architecture_type=None):
+        """
+        Create a student model with a fraction of the teacher's capacity and potentially fewer layers
+        
+        Args:
+            config: Configuration object
+            size_factor: Factor to scale the hidden dimensions (0.5 = half the size)
+            architecture_type: Type of architecture to use ('tiny', 'small', 'medium', 'full')
+                               If None, will use the same architecture as teacher but scaled by size_factor
+        """
+        super().__init__()
+        self.config = config
+        
+        # Determine the architecture to use
+        if architecture_type is None:
+            # Use the same architecture as teacher but scaled by size_factor
+            self.hidden_dims = [max(8, int(dim * size_factor)) for dim in config.hidden_dims]
+        else:
+            # Use a predefined architecture with potentially fewer layers
+            if architecture_type not in config.student_architectures:
+                print(f"Warning: Architecture type '{architecture_type}' not found. Using 'tiny' instead.")
+                architecture_type = 'tiny'
+            
+            # Get the base architecture and scale it by size_factor
+            base_dims = config.student_architectures[architecture_type]
+            self.hidden_dims = [max(8, int(dim * size_factor)) for dim in base_dims]
+        
+        # Print model size information
+        print(f"Creating student model with size factor {size_factor}")
+        print(f"Teacher hidden dims: {config.hidden_dims}")
+        print(f"Student hidden dims: {self.hidden_dims}")
+        
+        # Initial projection
+        self.conv_in = nn.Conv2d(config.channels, self.hidden_dims[0], 3, padding=1)
+        
+        # Downsampling path
+        self.downs = nn.ModuleList([])
+        for i in range(len(self.hidden_dims) - 1):
+            self.downs.append(nn.Sequential(
+                nn.Conv2d(self.hidden_dims[i], self.hidden_dims[i+1], 3, padding=1),
+                nn.BatchNorm2d(self.hidden_dims[i+1]),
+                nn.LeakyReLU(),
+                nn.Conv2d(self.hidden_dims[i+1], self.hidden_dims[i+1], 3, padding=1),
+                nn.BatchNorm2d(self.hidden_dims[i+1]),
+                nn.LeakyReLU(),
+                nn.MaxPool2d(2)
+            ))
+        
+        # Middle
+        mid_channels = self.hidden_dims[-1]
+        self.mid = nn.Sequential(
+            nn.Conv2d(mid_channels, mid_channels * 2, 3, padding=1),
+            nn.BatchNorm2d(mid_channels * 2),
+            nn.LeakyReLU(),
+            nn.Conv2d(mid_channels * 2, mid_channels, 3, padding=1),
+            nn.BatchNorm2d(mid_channels),
+            nn.LeakyReLU(),
+        )
+        
+        # Upsampling path
+        self.ups = nn.ModuleList([])
+        for i in range(len(self.hidden_dims) - 1, 0, -1):
+            self.ups.append(nn.Sequential(
+                nn.ConvTranspose2d(self.hidden_dims[i], self.hidden_dims[i-1], 4, stride=2, padding=1),
+                nn.BatchNorm2d(self.hidden_dims[i-1]),
+                nn.LeakyReLU(),
+                nn.Conv2d(self.hidden_dims[i-1], self.hidden_dims[i-1], 3, padding=1),
+                nn.BatchNorm2d(self.hidden_dims[i-1]),
+                nn.LeakyReLU()
+            ))
+        
+        # Time embedding
+        self.time_embed = nn.Sequential(
+            nn.Linear(1, 32),
+            nn.SiLU(),
+            nn.Linear(32, 32),
+            nn.SiLU()
+        )
+        
+        # Time projection layers for each spatial resolution
+        self.time_projections = nn.ModuleList([
+            nn.Conv2d(32, dim, 1) for dim in self.hidden_dims
+        ])
+        
+        # Output projection
+        self.conv_out = nn.Conv2d(self.hidden_dims[0], config.channels, 3, padding=1)
+        
+    def forward(self, x, t):
+        # Time embedding
+        t_emb = self.time_embed(t.unsqueeze(-1).float())
+        
+        # Initial convolution
+        x = self.conv_in(x)
+        
+        # Store residuals for skip connections
+        residuals = []
+        for down in self.downs:
+            residuals.append(x)
+            x = down(x)
+        
+        # Add time embedding - simplified to avoid dimension issues
+        # Create a more straightforward time embedding approach
+        t_emb = t_emb.unsqueeze(-1).unsqueeze(-1)
+        # Instead of adding directly, use a small projection layer
+        t_projection = nn.Conv2d(32, x.shape[1], 1).to(x.device)
+        x = x + t_projection(t_emb.expand(-1, -1, x.shape[2], x.shape[3]))
+        
+        # Middle
+        x = self.mid(x)
+        
+        # Upsampling with skip connections
+        for up, res in zip(self.ups, reversed(residuals)):
+            x = up(x)
+            x = x + res
+            
+        # Output
+        x = self.conv_out(x)
+        return x
+
 # Prepare dataset
 def get_data_loader(config):
-    if config.dataset == "MNIST":
+    if config.dataset == "CIFAR10":
+        # For CIFAR10, we need to normalize with the appropriate mean and std for RGB
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        
+        train_dataset = datasets.CIFAR10(
+            root='data',
+            train=True,
+            download=True,
+            transform=transform
+        )
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.batch_size,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=True,
+            drop_last=True
+        )
+        
+        return train_loader
+    elif config.dataset == "MNIST":
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5,), (0.5,))
@@ -358,15 +518,52 @@ def train(config, diffusion_params):
     return model
 
 # Knowledge distillation for diffusion models
-def distill_diffusion_model(teacher_model, config, teacher_params, student_params):
+def distill_diffusion_model(teacher_model, config, teacher_params, student_params, size_factor=1.0):
     """
-    Distill a diffusion model to use fewer timesteps
-    """
-    # Initialize student model with the same architecture
-    student_model = SimpleUNet(config).to(device)
+    Distill a diffusion model to use fewer timesteps with a potentially smaller architecture
     
-    # Optionally initialize with teacher weights
-    student_model.load_state_dict(teacher_model.state_dict())
+    Args:
+        teacher_model: The trained teacher model
+        config: Configuration object
+        teacher_params: Diffusion parameters for the teacher model
+        student_params: Diffusion parameters for the student model
+        size_factor: Factor to scale the student model size (0.25, 0.5, 0.75, 1.0)
+    
+    Returns:
+        Trained student model
+    """
+    # Determine architecture type based on size factor
+    architecture_type = None
+    if size_factor < 0.1:
+        architecture_type = 'tiny'     # Use the smallest architecture for very small models
+    elif size_factor < 0.3:
+        architecture_type = 'small'    # Use small architecture for small models
+    elif size_factor < 0.7:
+        architecture_type = 'medium'   # Use medium architecture for medium models
+    else:
+        architecture_type = 'full'     # Use full architecture for large models
+    
+    # Initialize student model with the specified size factor and architecture
+    student_model = StudentUNet(config, size_factor=size_factor, architecture_type=architecture_type).to(device)
+    
+    print(f"Using architecture type: {architecture_type} for size factor {size_factor}")
+    
+    # Get the model size in MB
+    def get_model_size(model):
+        param_size = 0
+        for param in model.parameters():
+            param_size += param.nelement() * param.element_size()
+        buffer_size = 0
+        for buffer in model.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+        size_mb = (param_size + buffer_size) / 1024**2
+        return size_mb
+    
+    teacher_size = get_model_size(teacher_model)
+    student_size = get_model_size(student_model)
+    
+    print(f"Teacher model size: {teacher_size:.2f} MB")
+    print(f"Student model size: {student_size:.2f} MB ({student_size/teacher_size:.2%} of teacher)")
     
     # Optimizer for the student
     optimizer = optim.Adam(student_model.parameters(), lr=config.lr)
@@ -417,10 +614,10 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
         
         # Save model periodically
         if (epoch + 1) % config.save_interval == 0 or epoch == (config.epochs // 2) - 1:
-            save_path = os.path.join(config.models_dir, f'student_model_epoch_{epoch+1}.pt')
-            print(f"Attempting to save student model to: {save_path}")
-            print(f"Epoch: {epoch}, Epochs: {config.epochs}")
-            torch.save(student_model.state_dict(), os.path.join(config.models_dir, f'student_model_epoch_{epoch+1}.pt'))
+            # Include size factor in the filename
+            save_path = os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_{epoch+1}.pt')
+            print(f"Saving student model to: {save_path}")
+            torch.save(student_model.state_dict(), save_path)
             
             # Generate some samples
             student_model.eval()
@@ -438,13 +635,13 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             plt.figure(figsize=(10, 10))
             plt.imshow(grid.permute(1, 2, 0).cpu())
             plt.axis('off')
-            plt.savefig(os.path.join(config.results_dir, f'student_samples_epoch_{epoch+1}.png'))
+            plt.savefig(os.path.join(config.results_dir, f'student_samples_size_{size_factor}_epoch_{epoch+1}.png'))
             plt.close()
     
     return student_model
 
 # Main function
-def main():
+def main(skip_teacher_training=False):
     # Create configuration
     global config
     config = Config()
@@ -454,15 +651,45 @@ def main():
     teacher_params = get_diffusion_params(config.teacher_steps)
     student_params = get_diffusion_params(config.student_steps)
     
-    print("Training teacher model...")
-    teacher_model = train(config, teacher_params)
+    # Check if teacher model already exists
+    teacher_model_path = os.path.join(config.models_dir, 'model_epoch_1.pt')
+    
+    if skip_teacher_training and os.path.exists(teacher_model_path):
+        print(f"Loading existing teacher model from {teacher_model_path}...")
+        teacher_model = SimpleUNet(config).to(device)
+        teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
+        teacher_model.eval()
+    else:
+        print("Training teacher model...")
+        teacher_model = train(config, teacher_params)
     
     if config.distill:
-        print("Distilling knowledge to student model...")
-        student_model = distill_diffusion_model(teacher_model, config, teacher_params, student_params)
+        print("Distilling knowledge to student models of different sizes...")
+        
+        # Train student models with different size factors
+        student_models = {}
+        for size_factor in config.student_size_factors:
+            print(f"\nDistilling to student model with size factor {size_factor}...")
+            student_model = distill_diffusion_model(
+                teacher_model, 
+                config, 
+                teacher_params, 
+                student_params,
+                size_factor=size_factor
+            )
+            student_models[size_factor] = student_model
         
         print("Training and distillation complete. Models saved in the models directory.")
 
 if __name__ == "__main__":
     import torchvision
-    main()
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Train diffusion models with knowledge distillation')
+    parser.add_argument('--train_teacher', action='store_true',
+                        help='Train the teacher model even if it already exists')
+    args = parser.parse_args()
+    
+    # Run main function with skip_teacher_training=True by default
+    main(skip_teacher_training=not args.train_teacher)
