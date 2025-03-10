@@ -109,14 +109,17 @@ def get_diffusion_params(timesteps):
     # Calculations for posterior q(x_{t-1} | x_t, x_0)
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
     
-    return {
-        'betas': betas,
-        'alphas_cumprod': alphas_cumprod,
-        'sqrt_recip_alphas': sqrt_recip_alphas,
-        'sqrt_alphas_cumprod': sqrt_alphas_cumprod,
-        'sqrt_one_minus_alphas_cumprod': sqrt_one_minus_alphas_cumprod,
-        'posterior_variance': posterior_variance
+    # Move all tensors to the global device
+    params = {
+        'betas': betas.to(device),
+        'alphas_cumprod': alphas_cumprod.to(device),
+        'sqrt_recip_alphas': sqrt_recip_alphas.to(device),
+        'sqrt_alphas_cumprod': sqrt_alphas_cumprod.to(device),
+        'sqrt_one_minus_alphas_cumprod': sqrt_one_minus_alphas_cumprod.to(device),
+        'posterior_variance': posterior_variance.to(device)
     }
+    
+    return params
 
 # Simple U-Net architecture adapted for limited computational resources
 class SimpleUNet(nn.Module):
@@ -176,6 +179,9 @@ class SimpleUNet(nn.Module):
             nn.Conv2d(32, dim, 1) for dim in config.hidden_dims
         ])
         
+        # Add a dedicated time projection layer for the middle features
+        self.time_proj_mid = nn.Conv2d(32, config.hidden_dims[-1], 1)
+        
         # Output projection
         self.conv_out = nn.Conv2d(config.hidden_dims[0], config.channels, 3, padding=1)
         
@@ -192,12 +198,9 @@ class SimpleUNet(nn.Module):
             residuals.append(x)
             x = down(x)
         
-        # Add time embedding - simplified to avoid dimension issues
-        # Create a more straightforward time embedding approach
+        # Add time embedding - using the dedicated projection layer
         t_emb = t_emb.unsqueeze(-1).unsqueeze(-1)
-        # Instead of adding directly, use a small projection layer
-        t_projection = nn.Conv2d(32, x.shape[1], 1).to(x.device)
-        x = x + t_projection(t_emb.expand(-1, -1, x.shape[2], x.shape[3]))
+        x = x + self.time_proj_mid(t_emb.expand(-1, -1, x.shape[2], x.shape[3]))
         
         # Middle
         x = self.mid(x)
@@ -292,10 +295,8 @@ class StudentUNet(nn.Module):
             nn.SiLU()
         )
         
-        # Time projection layers for each spatial resolution
-        self.time_projections = nn.ModuleList([
-            nn.Conv2d(32, dim, 1) for dim in self.hidden_dims
-        ])
+        # Add a dedicated time projection layer for the middle features
+        self.time_proj_mid = nn.Conv2d(32, self.hidden_dims[-1], 1)
         
         # Output projection
         self.conv_out = nn.Conv2d(self.hidden_dims[0], config.channels, 3, padding=1)
@@ -313,12 +314,9 @@ class StudentUNet(nn.Module):
             residuals.append(x)
             x = down(x)
         
-        # Add time embedding - simplified to avoid dimension issues
-        # Create a more straightforward time embedding approach
+        # Add time embedding - using the dedicated projection layer
         t_emb = t_emb.unsqueeze(-1).unsqueeze(-1)
-        # Instead of adding directly, use a small projection layer
-        t_projection = nn.Conv2d(32, x.shape[1], 1).to(x.device)
-        x = x + t_projection(t_emb.expand(-1, -1, x.shape[2], x.shape[3]))
+        x = x + self.time_proj_mid(t_emb.expand(-1, -1, x.shape[2], x.shape[3]))
         
         # Middle
         x = self.mid(x)
