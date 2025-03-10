@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
+import torchvision
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
@@ -660,7 +661,7 @@ def main(skip_teacher_training=False):
     student_params = get_diffusion_params(config.student_steps)
     
     # Check if teacher model already exists
-    teacher_model_path = os.path.join(config.models_dir, 'model_epoch_1.pt')
+    teacher_model_path = os.path.join(config.models_dir, 'model_epoch_10.pt')
     
     if skip_teacher_training and os.path.exists(teacher_model_path):
         print(f"Loading existing teacher model from {teacher_model_path}...")
@@ -690,7 +691,6 @@ def main(skip_teacher_training=False):
         print("Training and distillation complete. Models saved in the models directory.")
 
 if __name__ == "__main__":
-    import torchvision
     import argparse
     
     # Parse command line arguments
