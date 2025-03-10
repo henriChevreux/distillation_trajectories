@@ -757,7 +757,7 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
 
 def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     """
-    Analyze noise prediction patterns of teacher and student models
+    Analyze noise prediction patterns of teacher and student models with fair comparison
     
     Args:
         teacher_model: The teacher diffusion model
@@ -774,29 +774,40 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
     # Add suffix to filenames if provided
     suffix = suffix if suffix else ""
     
-    # Get diffusion parameters - cache these for reuse
+    # Get diffusion parameters - only use teacher's parameters for evaluation
     teacher_params = get_diffusion_params(config.teacher_steps)
-    student_params = get_diffusion_params(config.student_steps)
     
     # Generate a batch of random images
     torch.manual_seed(42)  # For reproducibility
     batch_size = 10
     x_start = torch.randn(batch_size, config.channels, config.image_size, config.image_size).to(device)
     
-    # IMPROVED: Use normalized timesteps for fair comparison
+    # Use normalized timesteps for fair comparison
     # Sample relative timesteps (0%, 25%, 50%, 75%, 100% of diffusion process)
     relative_timesteps = [0.0, 0.25, 0.5, 0.75, 0.99]  # Using 0.99 instead of 1.0 to avoid index errors
     
-    # Convert to actual timesteps for each model
+    # Convert to actual timesteps for teacher model
     teacher_timesteps = [int(rt * (config.teacher_steps - 1)) for rt in relative_timesteps]
-    student_timesteps = [int(rt * (config.student_steps - 1)) for rt in relative_timesteps]
+    
+    # Find equivalent timesteps for student model based on noise level
+    # We'll map student timesteps to match teacher noise levels
+    student_timesteps = []
+    for t_teacher in teacher_timesteps:
+        # Find student timestep with closest alpha_cumprod value to the teacher timestep
+        t_teacher_alpha = teacher_params['alphas_cumprod'][t_teacher].item()
+        student_params = get_diffusion_params(config.student_steps)
+        student_alphas = student_params['alphas_cumprod'].cpu().numpy()
+        t_student = np.argmin(np.abs(student_alphas - t_teacher_alpha))
+        student_timesteps.append(int(t_student))
     
     # Initialize metrics
     metrics = {
         'teacher_noise_mse': [],
         'student_noise_mse': [],
         'noise_prediction_similarity': [],
-        'relative_timesteps': relative_timesteps
+        'relative_timesteps': relative_timesteps,
+        'teacher_timesteps': teacher_timesteps,
+        'student_timesteps': student_timesteps
     }
     
     # Analyze noise prediction at different timesteps
@@ -807,23 +818,19 @@ def analyze_noise_prediction(teacher_model, student_model, config, suffix=""):
         t_teacher_tensor = torch.full((batch_size,), t_teacher, device=device, dtype=torch.long)
         t_student_tensor = torch.full((batch_size,), t_student, device=device, dtype=torch.long)
         
-        # FIXED: Create separate noisy samples for teacher and student at equivalent noise levels
-        # This ensures we're comparing models at the same point in the diffusion process
-        x_noisy_teacher, true_noise_teacher = q_sample(x_start, t_teacher_tensor, teacher_params)
-        x_noisy_student, true_noise_student = q_sample(x_start, t_student_tensor, student_params)
+        # Generate a SINGLE noisy sample and ground truth noise using teacher's diffusion process
+        # Both models will be evaluated on this same noisy input
+        x_noisy, true_noise = q_sample(x_start, t_teacher_tensor, teacher_params)
         
         # Get noise predictions from both models
         with torch.no_grad():
-            teacher_pred = teacher_model(x_noisy_teacher, t_teacher_tensor)
-            student_pred = student_model(x_noisy_student, t_student_tensor)
+            teacher_pred = teacher_model(x_noisy, t_teacher_tensor)
+            # Use the student timestep with the student model, but on the same noisy image
+            student_pred = student_model(x_noisy, t_student_tensor)
         
-        # Compute metrics in a vectorized way
-        teacher_mse = F.mse_loss(teacher_pred, true_noise_teacher).item()
-        student_mse = F.mse_loss(student_pred, true_noise_student).item()
-        
-        # IMPROVED: For fair comparison of predictions, we need to compare at equivalent noise levels
-        # We'll interpolate the student predictions to match the teacher's image space
-        # This is a simplified approach - in practice, a more sophisticated alignment might be needed
+        # Compute metrics using the SAME ground truth noise for both models
+        teacher_mse = F.mse_loss(teacher_pred, true_noise).item()
+        student_mse = F.mse_loss(student_pred, true_noise).item()
         
         # Normalize predictions to [0,1] range for better comparison
         teacher_pred_norm = (teacher_pred - teacher_pred.min()) / (teacher_pred.max() - teacher_pred.min() + 1e-8)

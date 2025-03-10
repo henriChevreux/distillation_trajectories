@@ -52,6 +52,7 @@ pip-selfcheck.json
 models/
 results/
 analysis/
+analysis-old/
 trajectories/
 test_results/
 test_models/
