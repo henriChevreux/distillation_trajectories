@@ -4,17 +4,19 @@ import os
 import numpy as np
 from tqdm import tqdm
 
-# Import the main diffusion code file
-# Assuming the main code is saved as diffusion_distillation.py
-try:
-    import diffusion_distillation as dd
-except Exception as e:
-    print(f"Error importing diffusion_distillation module: {e}")
-    print("Make sure diffusion_distillation.py is in the same directory as this test script.")
-    exit(1)
+import sys
+import os
+
+# Add the project root directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from config.config import Config
+from models import SimpleUNet
+from utils.diffusion import get_diffusion_params, q_sample, p_losses, p_sample_loop
+from data.dataset import get_data_loader
 
 # Set up a smaller configuration for quick tests
-class TestConfig(dd.Config):
+class TestConfig(Config):
     def __init__(self):
         super().__init__()
         # Override with smaller values for quick testing
@@ -34,33 +36,36 @@ class TestConfig(dd.Config):
 # Test 1: Check if the device setup works correctly
 def test_device_setup():
     print("\n--- Testing Device Setup ---")
-    original_device = dd.device
+    
+    # Determine device
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else 
+        "mps" if torch.backends.mps.is_available() else 
+        "cpu"
+    )
     
     # Force CPU for testing to avoid MPS issues
     print("Forcing CPU usage for testing to avoid MPS-related errors")
-    dd.device = torch.device("cpu")
+    device = torch.device("cpu")
     
     test_tensor = torch.randn(10, 10)
-    test_tensor = test_tensor.to(dd.device)
-    print(f"✓ Successfully created tensor on {dd.device}")
+    test_tensor = test_tensor.to(device)
+    print(f"✓ Successfully created tensor on {device}")
     
-    print(f"Original device was: {original_device}")
-    print(f"Testing device is: {dd.device}")
-    
-    return True
+    return device
 
 # Test 2: Check model initialization
-def test_model_init():
+def test_model_init(device):
     print("\n--- Testing Model Initialization ---")
     config = TestConfig()
     try:
-        model = dd.SimpleUNet(config).to(dd.device)
+        model = SimpleUNet(config).to(device)
         print(f"✓ Model initialized with {sum(p.numel() for p in model.parameters())} parameters")
         
         # Test forward pass with proper error handling
         try:
-            dummy_input = torch.randn(2, config.channels, config.image_size, config.image_size).to(dd.device)
-            dummy_t = torch.randint(0, config.timesteps, (2,)).to(dd.device)
+            dummy_input = torch.randn(2, config.channels, config.image_size, config.image_size).to(device)
+            dummy_t = torch.randint(0, config.timesteps, (2,)).to(device)
             
             output = model(dummy_input, dummy_t)
             print(f"✓ Forward pass successful, output shape: {output.shape}")
@@ -86,7 +91,7 @@ def test_diffusion_params():
     print("\n--- Testing Diffusion Parameters ---")
     config = TestConfig()
     try:
-        params = dd.get_diffusion_params(config.timesteps)
+        params = get_diffusion_params(config.timesteps)
         print("✓ Diffusion parameters generated")
         
         # Check if all expected keys are present
@@ -103,11 +108,11 @@ def test_diffusion_params():
         return None
 
 # Test 4: Check forward diffusion process
-def test_forward_diffusion(config, params):
+def test_forward_diffusion(config, params, device):
     print("\n--- Testing Forward Diffusion Process ---")
     try:
         # Create a sample image (batch of 1)
-        x_start = torch.zeros(1, config.channels, config.image_size, config.image_size).to(dd.device)
+        x_start = torch.zeros(1, config.channels, config.image_size, config.image_size).to(device)
         x_start[:, :, 10:20, 10:20] = 1.0  # Create a simple white square on black background
         
         # Apply diffusion at different timesteps
@@ -115,8 +120,8 @@ def test_forward_diffusion(config, params):
         
         fig, axs = plt.subplots(1, len(timesteps), figsize=(15, 3))
         for i, t_step in enumerate(timesteps):
-            t = torch.tensor([t_step]).to(dd.device)
-            x_noisy, _ = dd.q_sample(x_start, t, params)
+            t = torch.tensor([t_step]).to(device)
+            x_noisy, _ = q_sample(x_start, t, params)
             
             # Visualize
             img = x_noisy[0].detach().cpu()
@@ -141,7 +146,7 @@ def test_data_loader():
     print("\n--- Testing Data Loader ---")
     config = TestConfig()
     try:
-        loader = dd.get_data_loader(config)
+        loader = get_data_loader(config)
         batch = next(iter(loader))
         images, labels = batch
         
@@ -175,7 +180,7 @@ def test_training_step(model, config, params):
         model = model.to("cpu")
         
         # Get a single batch
-        loader = dd.get_data_loader(config)
+        loader = get_data_loader(config)
         images, _ = next(iter(loader))
         images = images.to("cpu")  # Move to CPU
         
@@ -186,7 +191,7 @@ def test_training_step(model, config, params):
         optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
         optimizer.zero_grad()
         
-        loss = dd.p_losses(model, images, t, params)
+        loss = p_losses(model, images, t, params)
         loss.backward()
         optimizer.step()
         
@@ -195,12 +200,12 @@ def test_training_step(model, config, params):
     except Exception as e:
         print(f"✗ Training step failed: {e}")
         print("  This may be due to MPS compatibility issues. Try running the full code with CPU:")
-        print("  1. Set 'use_mps = False' in diffusion_distillation.py")
-        print("  2. Run the main script with CPU: python diffusion_distillation.py")
+        print("  1. Set 'use_mps = False' in diffusion_training.py")
+        print("  2. Run the main script with CPU: python diffusion_training.py")
         return False
 
 # Test 7: Quick sampling test
-def test_sampling(model, config, params):
+def test_sampling(model, config, params, device):
     print("\n--- Testing Sampling Process ---")
     try:
         # Set model to eval mode
@@ -208,7 +213,7 @@ def test_sampling(model, config, params):
         
         # Generate a small sample
         with torch.no_grad():
-            samples = dd.p_sample_loop(
+            samples = p_sample_loop(
                 model, 
                 shape=(4, config.channels, config.image_size, config.image_size),
                 timesteps=5,  # Use fewer steps for quick testing
@@ -239,8 +244,8 @@ def run_tests():
     print("Starting tests for diffusion model distillation code...")
     
     # Run all tests
-    test_device_setup()
-    model, config = test_model_init()
+    device = test_device_setup()
+    model, config = test_model_init(device)
     
     if model is None or config is None:
         print("❌ Critical test failed. Stopping further tests.")
@@ -251,14 +256,14 @@ def run_tests():
         print("❌ Critical test failed. Stopping further tests.")
         return
     
-    test_forward_diffusion(config, params)
+    test_forward_diffusion(config, params, device)
     test_data_loader()
     
     if test_training_step(model, config, params):
-        test_sampling(model, config, params)
+        test_sampling(model, config, params, device)
     
     print("\nAll tests complete!")
-    print("To run the full training pipeline, execute the main diffusion_distillation.py script.")
+    print("To run the full training pipeline, execute the main diffusion_training.py script.")
 
 if __name__ == "__main__":
     run_tests()
