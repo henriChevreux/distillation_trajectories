@@ -1,4 +1,6 @@
 import os
+import torchvision
+from torchvision import transforms
 
 class Config:
     """Configuration for diffusion model training and analysis"""
@@ -49,6 +51,7 @@ class Config:
         self.fid_dir = os.path.join(self.analysis_dir, "fid")
         self.time_dependent_dir = os.path.join(self.analysis_dir, "time_dependent")
         self.size_dependent_dir = os.path.join(self.analysis_dir, "size_dependent")
+        self.convergence_dir = os.path.join(self.time_dependent_dir, "convergence_analysis")
         
         # Distillation
         self.distill = True
@@ -106,6 +109,11 @@ class Config:
             self.size_dependent_dir,
         ]
         
+        # Create time-dependent subdirectories
+        time_dependent_subdirs = [
+            self.convergence_dir,
+        ]
+        
         # Create student model size directories
         student_size_dirs = []
         for size_factor in self.student_size_factors:
@@ -113,7 +121,39 @@ class Config:
             student_size_dirs.append(size_dir)
         
         # Create all directories
-        for dir_path in directories + analysis_subdirs + student_size_dirs:
-            os.makedirs(dir_path, exist_ok=True)
-            
+        all_dirs = directories + analysis_subdirs + time_dependent_subdirs + student_size_dirs
+        for dir_path in all_dirs:
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"Created directory: {dir_path}")
+            except Exception as e:
+                print(f"Error creating directory {dir_path}: {e}")
+        
         return self
+
+    def get_test_dataset(self):
+        """Get the test dataset for analysis"""
+        if self.dataset.lower() == 'cifar10':
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            ])
+            return torchvision.datasets.CIFAR10(
+                root=self.data_dir,
+                train=False,
+                download=True,
+                transform=transform
+            )
+        elif self.dataset.lower() == 'mnist':
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,))
+            ])
+            return torchvision.datasets.MNIST(
+                root=self.data_dir,
+                train=False,
+                download=True,
+                transform=transform
+            )
+        else:
+            raise ValueError(f"Dataset {self.dataset} not supported")

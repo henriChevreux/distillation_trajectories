@@ -9,6 +9,7 @@ import argparse
 import torch
 import sys
 import os
+from torch.utils.data import DataLoader
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -33,6 +34,7 @@ from analysis import (
     plot_mse_vs_size,
     plot_metrics_vs_size
 )
+from analysis.noise_fid_analysis import create_denoising_comparison_plot
 
 def parse_args():
     """Parse command line arguments"""
@@ -71,6 +73,8 @@ def parse_args():
                         help='Skip 3D visualization')
     analysis_group.add_argument('--skip_fid', action='store_true',
                         help='Skip FID calculation')
+    analysis_group.add_argument('--only_denoising', action='store_true',
+                        help='Only run the denoising comparison, skip all other analyses')
     
     # Model size focus
     size_group = parser.add_argument_group('Model Size Analysis')
@@ -78,6 +82,10 @@ def parse_args():
                         help='Focus on a specific size range (e.g., "0.1-0.5")')
     size_group.add_argument('--compare_specific_sizes', type=str, default=None,
                         help='Compare specific size factors (comma-separated, e.g., "0.1,0.5,1.0")')
+    
+    # Add new argument for denoising comparison
+    parser.add_argument('--num_denoising_samples', type=int, default=5,
+                       help='Number of samples to use in denoising comparison')
     
     return parser.parse_args()
 
@@ -386,6 +394,26 @@ def main():
         # Print summary of loaded models
         print(f"\nLoaded {len(student_models)} student models with size factors: {list(student_models.keys())}")
         
+        # If only running denoising comparison, skip other analyses
+        if args.only_denoising:
+            print("\nRunning only denoising comparison...")
+            # Get some test samples
+            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
+            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
+            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
+            test_samples = test_samples.to(device)
+            
+            # Create the comparison plot
+            create_denoising_comparison_plot(
+                teacher_model,
+                student_models,
+                test_samples,
+                config,
+                num_samples=args.num_denoising_samples
+            )
+            print("Denoising comparison saved in analysis/denoising_comparison/")
+            return
+        
         # Analyze each student model
         all_metrics = {}
         all_fid_results = {}
@@ -476,7 +504,15 @@ def main():
             if not args.skip_attention:
                 # 6. Attention map analysis
                 print("Analyzing attention maps...")
-                attention_metrics = analyze_attention_maps(teacher_model, student_model, config, suffix=f"_size_{size_factor}")
+                # Get test samples for attention analysis
+                test_dataset = config.get_test_dataset()
+                test_loader = DataLoader(test_dataset, batch_size=args.num_samples, shuffle=True)
+                test_samples, _ = next(iter(test_loader))
+                test_samples = test_samples.to(device)
+                
+                # Create a dictionary with just this student model for the analysis
+                current_student_models = {size_factor: student_model}
+                attention_metrics = analyze_attention_maps(teacher_model, current_student_models, test_samples, config)
             else:
                 print("Skipping attention map analysis.")
             
@@ -516,6 +552,25 @@ def main():
             print("Creating size-dependent visualizations...")
             plot_mse_vs_size(all_metrics, config)
             plot_metrics_vs_size(all_metrics, config)
+        
+        # After loading all models and before running other analyses, add:
+        if len(student_models) > 0:
+            print("\nGenerating denoising comparison visualization...")
+            # Get some test samples
+            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
+            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
+            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
+            test_samples = test_samples.to(device)
+            
+            # Create the comparison plot
+            create_denoising_comparison_plot(
+                teacher_model,
+                student_models,
+                test_samples,
+                config,
+                num_samples=args.num_denoising_samples
+            )
+            print("Denoising comparison saved in analysis/denoising_comparison/")
         
         print("\nAnalysis complete. Results saved in the analysis directory.")
         
