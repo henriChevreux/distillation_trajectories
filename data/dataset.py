@@ -7,6 +7,9 @@ import requests
 from tqdm import tqdm
 import gdown
 from PIL import Image
+from torch.utils.data import Dataset, DataLoader
+from torchvision.datasets import ImageFolder
+from torch.utils.data import random_split
 
 def download_lsun(data_dir, category='bedroom'):
     """
@@ -121,162 +124,79 @@ def download_afhq(data_dir):
     else:
         print("AFHQ dataset already exists!")
 
-def get_data_loader(config, image_size=None):
+def get_data_loader(config, train=True):
     """
-    Create a data loader for the specified dataset in the config
+    Get data loader for training or evaluation.
     
     Args:
-        config: Configuration object with dataset settings
-        image_size: Optional specific image size to use (overrides config.image_size)
-        
+        config: Configuration object
+        train: Whether to get training or test data loader
+    
     Returns:
-        DataLoader for the specified dataset
+        DataLoader: PyTorch data loader
     """
-    # Use provided image_size or fall back to config.image_size
-    target_size = image_size if image_size is not None else config.image_size
-    
-    if config.dataset == "CelebA":
-        # CelebA-HQ specific transforms
-        transform = transforms.Compose([
-            transforms.Resize(target_size),
-            transforms.CenterCrop(target_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        
-        try:
-            # Download CelebA-HQ if needed
-            download_celeba_hq(config.data_dir)
-            
-            # Create dataset
-            full_dataset = CelebAHQDataset(
-                root=config.data_dir,
-                train=True,
-                transform=transform
-            )
-            
-            # Take only the first 5000 samples for faster training
-            num_samples = min(5000, len(full_dataset))
-            indices = np.arange(num_samples)
-            train_dataset = Subset(full_dataset, indices)
-            print(f"Using {num_samples} samples from CelebA-HQ dataset")
-            
-        except Exception as e:
-            print(f"Error loading CelebA-HQ dataset: {e}")
-            raise
-            
-    elif config.dataset == "CIFAR10":
-        # For CIFAR10, we need to normalize with the appropriate mean and std for RGB
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((target_size, target_size)),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        
-        train_dataset = datasets.CIFAR10(
-            root='data',
-            train=True,
-            download=True,
-            transform=transform
-        )
-        
-    elif config.dataset == "MNIST":
-        # Also resize MNIST images to match the configured image size
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((target_size, target_size)),
-            transforms.Normalize((0.5,), (0.5,))
-        ])
-        
-        train_dataset = datasets.MNIST(
-            root='data',
-            train=True,
-            download=True,
-            transform=transform
-        )
-        
-    elif config.dataset == "LSUN":
-        # First, ensure LSUN dataset is downloaded and extracted
-        lmdb_dir = download_lsun(config.data_dir, config.high_res_category)
-        
-        # LSUN specific transforms
-        transform = transforms.Compose([
-            transforms.Resize((target_size, target_size)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        
-        try:
-            full_dataset = datasets.LSUN(
-                root=config.data_dir,
-                classes=[config.high_res_category],
-                transform=transform
-            )
-            
-            # Take only the first 5000 samples
-            num_samples = min(5000, len(full_dataset))
-            indices = np.arange(num_samples)
-            train_dataset = Subset(full_dataset, indices)
-            print(f"Using {num_samples} samples from LSUN dataset")
-            
-        except Exception as e:
-            print(f"Error loading LSUN dataset: {e}")
-            raise
-        
-    elif config.dataset == "AFHQ":
-        transform = transforms.Compose([
-            transforms.Resize(target_size),
-            transforms.CenterCrop(target_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        
-        try:
-            # Create dataset directly from the train directory
-            dataset_path = os.path.join(config.data_dir, 'train', config.afhq_category)
-            if not os.path.exists(dataset_path):
-                raise ValueError(f"AFHQ category '{config.afhq_category}' not found in {dataset_path}")
-            
-            full_dataset = datasets.ImageFolder(
-                root=os.path.join(config.data_dir, 'train'),
-                transform=transform
-            )
-            
-            # Filter for specific category
-            indices = [i for i, (path, label) in enumerate(full_dataset.samples) 
-                      if config.afhq_category in path]
-            train_dataset = Subset(full_dataset, indices)
-            
-            print(f"Using {len(train_dataset)} samples from AFHQ dataset ({config.afhq_category} category)")
-            return DataLoader(
-                train_dataset,
-                batch_size=config.batch_size,
-                shuffle=True,
-                num_workers=4,
-                pin_memory=True
-            )
-            
-        except Exception as e:
-            print(f"Error loading AFHQ dataset: {e}")
-            raise
-        
-    else:
-        raise ValueError(f"Dataset {config.dataset} not supported")
-    
-    # Create and return the DataLoader
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=True,
-        drop_last=True
+    # Use ImageFolder to load images from directory
+    dataset = ImageFolder(
+        root=config.train_dir if train else config.test_dir,
+        transform=config.transform if train else config.eval_transform
     )
     
-    return train_loader
+    return DataLoader(
+        dataset,
+        batch_size=config.batch_size,
+        shuffle=train,  # Shuffle only training data
+        num_workers=config.num_workers,
+        pin_memory=True,
+        drop_last=train  # Drop last incomplete batch only during training
+    )
+
+def get_dataset_stats(config):
+    """
+    Calculate dataset statistics (mean, std) for both training and test sets.
+    
+    Args:
+        config: Configuration object
+    
+    Returns:
+        dict: Dictionary containing dataset statistics
+    """
+    # Load datasets without normalization
+    transform = config.transform.transforms[:-1]  # Remove normalization
+    
+    train_dataset = ImageFolder(config.train_dir, transform=transform)
+    test_dataset = ImageFolder(config.test_dir, transform=transform)
+    
+    # Calculate statistics
+    def get_stats(dataset):
+        loader = DataLoader(dataset, batch_size=config.batch_size, num_workers=config.num_workers)
+        mean = torch.zeros(3)
+        std = torch.zeros(3)
+        total_samples = 0
+        
+        for images, _ in loader:
+            batch_samples = images.size(0)
+            images = images.view(batch_samples, images.size(1), -1)
+            mean += images.mean(2).sum(0)
+            std += images.std(2).sum(0)
+            total_samples += batch_samples
+        
+        mean /= total_samples
+        std /= total_samples
+        return mean, std
+    
+    train_mean, train_std = get_stats(train_dataset)
+    test_mean, test_std = get_stats(test_dataset)
+    
+    return {
+        'train': {
+            'mean': train_mean.tolist(),
+            'std': train_std.tolist()
+        },
+        'test': {
+            'mean': test_mean.tolist(),
+            'std': test_std.tolist()
+        }
+    }
 
 def get_real_images(config, num_samples=100):
     """

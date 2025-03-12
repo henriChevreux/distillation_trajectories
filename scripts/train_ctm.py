@@ -1,273 +1,177 @@
 #!/usr/bin/env python3
 """
 Script to train a Consistency Trajectory Model (CTM).
+Implements the training procedure from the paper "Consistency Trajectory Models: 
+Learning Probability Flow ODE Trajectory of Diffusion"
 """
 
 import os
 import sys
-import time
 import torch
 import argparse
-import numpy as np
-from tqdm import tqdm
-import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+import torchvision
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
-# Add the project root to the path so we can import modules
+# Add the project root to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config.config import Config
 from models import ConsistencyTrajectoryModel, SimpleUNet
-from utils.diffusion import q_sample
+from utils.diffusion import get_diffusion_params
 from data.dataset import get_data_loader
+from utils.fid import calculate_fid
 
-# Replace the import with our own implementation
-def get_diffusion_params(timesteps, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
-    """Initialize diffusion parameters (betas, alphas, etc.)"""
-    # Linear beta schedule
-    scale = 1000 / timesteps
-    beta_start = scale * 0.0001
-    beta_end = scale * 0.02
-    betas = torch.linspace(beta_start, beta_end, timesteps).to(device)
-    
-    # Calculations from original DDPM implementation
-    alphas = 1.0 - betas
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
-    alphas_cumprod_prev = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]])
-    sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
-    sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
-    sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - alphas_cumprod)
-    posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
-    
-    # Return all parameters as a dictionary
-    return {
-        "betas": betas,
-        "alphas": alphas,
-        "alphas_cumprod": alphas_cumprod,
-        "alphas_cumprod_prev": alphas_cumprod_prev,
-        "sqrt_recip_alphas": sqrt_recip_alphas,
-        "sqrt_alphas_cumprod": sqrt_alphas_cumprod,
-        "sqrt_one_minus_alphas_cumprod": sqrt_one_minus_alphas_cumprod,
-        "posterior_variance": posterior_variance,
-    }
-
-def train_ctm(config, model, teacher_model, train_loader, optimizer, diffusion_params, device, 
-             epoch, writer=None, trajectory_prob=0.5, max_time_diff=0.5):
+def train_ctm(config, model, teacher_model, train_loader, optimizer, 
+              diffusion_params, device, epoch, writer=None,
+              trajectory_prob=0.7, max_time_diff=0.5):
     """
-    Train a CTM model for one epoch.
+    Train the CTM model for one epoch
     
     Args:
         config: Configuration object
         model: CTM model to train
-        teacher_model: Teacher model for trajectory supervision
+        teacher_model: Teacher model for supervision
         train_loader: DataLoader for training data
-        optimizer: Optimizer for model parameters
-        diffusion_params: Diffusion parameters
-        device: Device to use
+        optimizer: Optimizer for training
+        diffusion_params: Diffusion process parameters
+        device: Device to use for training
         epoch: Current epoch number
-        writer: TensorBoard SummaryWriter
-        trajectory_prob: Probability of training with trajectory mode (vs. standard mode)
-        max_time_diff: Maximum time difference for trajectory training
-        
-    Returns:
-        Average loss for the epoch
+        writer: TensorBoard writer (optional)
+        trajectory_prob: Probability of using trajectory mode
+        max_time_diff: Maximum time difference for trajectory jumps
     """
     model.train()
-    if teacher_model is not None:
-        teacher_model.eval()
-    
     total_loss = 0
-    score_losses = 0
-    consistency_losses = 0
-    trajectory_steps = 0
-    standard_steps = 0
+    num_batches = len(train_loader)
     
-    # Track per-component losses
-    epoch_score_loss = 0
-    epoch_consistency_loss = 0
-    
-    # Progress bar
-    pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-    
-    for batch_idx, batch in enumerate(pbar):
-        # Extract images from batch
-        if isinstance(batch, (list, tuple)):
-            x = batch[0].to(device)
-        else:
-            x = batch.to(device)
-        
-        # Ensure values are in [-1, 1]
-        if x.max() > 1.0:
-            x = x / 127.5 - 1
-        
-        batch_size = x.shape[0]
-        optimizer.zero_grad()
-        
-        # Sample timestep t
-        t = torch.randint(0, config.timesteps, (batch_size,), device=device)
-        
-        # Add noise to inputs
-        noise = torch.randn_like(x)
-        
-        # Get noise scaling factors for timestep t
-        sqrt_alpha_cumprod = diffusion_params["sqrt_alphas_cumprod"][t].view(-1, 1, 1, 1)
-        sqrt_one_minus_alpha_cumprod = diffusion_params["sqrt_one_minus_alphas_cumprod"][t].view(-1, 1, 1, 1)
-        
-        # Add noise to images
-        x_t = sqrt_alpha_cumprod * x + sqrt_one_minus_alpha_cumprod * noise
-        
-        # Randomly decide whether to use trajectory mode or standard mode
-        use_trajectory = torch.rand(1).item() < trajectory_prob
-        
-        if use_trajectory:
-            # Sample an end timestep
-            # 50% of the time, set t_end=0 (predict clean image)
-            # 50% of the time, sample a random timestep between 0 and t
-            if torch.rand(1).item() < 0.5:
-                t_end = torch.zeros_like(t)
-            else:
-                # Sample t_end < t for each item in batch
-                t_ratios = torch.rand(batch_size, device=device) * max_time_diff  # Limit how far ahead we predict
-                t_end = (t.float() * (1 - t_ratios)).long()
+    with tqdm(train_loader, desc=f"Training Epoch {epoch+1}", 
+              leave=False, position=0) as pbar:
+        for batch_idx, (data, _) in enumerate(pbar):
+            data = data.to(device)
+            batch_size = data.shape[0]
             
-            # If teacher model is available, use it for supervision
-            if teacher_model is not None:
+            # Sample timesteps
+            t = torch.randint(0, config.timesteps, (batch_size,), device=device)
+            
+            # Add noise to data
+            noise = torch.randn_like(data)
+            noisy_data = diffusion_params['sqrt_alphas_cumprod'][t].view(-1, 1, 1, 1) * data + \
+                        diffusion_params['sqrt_one_minus_alphas_cumprod'][t].view(-1, 1, 1, 1) * noise
+            
+            # Decide whether to use trajectory mode
+            use_trajectory = torch.rand(1).item() < trajectory_prob
+            
+            if use_trajectory:
+                # Sample end timestep
+                t_end = torch.maximum(
+                    t - torch.randint(1, int(max_time_diff * config.timesteps), (batch_size,)),
+                    torch.zeros_like(t)
+                )
+                
+                # Get teacher prediction for supervision
                 with torch.no_grad():
-                    # Get "ground truth" denoised samples from teacher by simulating the ODE solution
-                    # In a real implementation, this would use a proper ODE solver
-                    # For simplicity, we're just letting the teacher predict directly
-                    teacher_out = teacher_model(x_t, t_end)
-                    # In a real implementation, you might have teacher_out be a numpy array or something
-                    # But here we are producing it from the PyTorch model
-                    teacher_denoised = teacher_out  # This would be the "correct" next point in the trajectory
+                    teacher_pred = teacher_model(noisy_data, t_end)
+                
+                # Get CTM prediction
+                ctm_pred = model(noisy_data, t, t_end)
+                
+                # Compute loss
+                loss = torch.nn.functional.mse_loss(ctm_pred, teacher_pred)
             else:
-                # If no teacher, we'll just use the original x (not ideal, but makes the script runnable)
-                teacher_denoised = x
+                # Standard denoising mode
+                pred_noise = model(noisy_data, t)
+                loss = torch.nn.functional.mse_loss(pred_noise, noise)
             
-            # Forward pass in trajectory mode
-            pred = model(x_t, t, t_end)
+            # Optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
             
-            # Compute loss components
-            score_loss = F.mse_loss(pred['score'], noise)
-            consistency_loss = F.mse_loss(pred['sample'], teacher_denoised)
+            # Update statistics
+            total_loss += loss.item()
+            avg_loss = total_loss / (batch_idx + 1)
+            pbar.set_postfix({'loss': f'{avg_loss:.6f}'})
             
-            # Combine losses
-            lambda_score = 1.0
-            lambda_consistency = 1.0
-            loss = lambda_score * score_loss + lambda_consistency * consistency_loss
-            
-            # Track component losses
-            epoch_score_loss += score_loss.item()
-            epoch_consistency_loss += consistency_loss.item()
-            trajectory_steps += 1
-            
-        else:
-            # Standard diffusion training (no trajectory, just score prediction)
-            pred = model(x_t, t)
-            
-            # Score matching loss
-            loss = F.mse_loss(pred['score'], noise)
-            
-            # Track component losses
-            epoch_score_loss += loss.item()
-            standard_steps += 1
-        
-        # Update model
-        loss.backward()
-        optimizer.step()
-        
-        # Track loss
-        total_loss += loss.item()
-        
-        # Update progress bar
-        if batch_idx % 10 == 0:
-            if use_trajectory:
-                pbar.set_postfix({
-                    'loss': loss.item(),
-                    'score': score_loss.item(),
-                    'consist': consistency_loss.item(),
-                    'mode': 'trajectory'
-                })
-            else:
-                pbar.set_postfix({
-                    'loss': loss.item(),
-                    'mode': 'standard'
-                })
-        
-        # Log to TensorBoard
-        if writer is not None and batch_idx % 100 == 0:
-            global_step = epoch * len(train_loader) + batch_idx
-            writer.add_scalar('train/loss', loss.item(), global_step)
-            if use_trajectory:
-                writer.add_scalar('train/score_loss', score_loss.item(), global_step)
-                writer.add_scalar('train/consistency_loss', consistency_loss.item(), global_step)
+            if writer is not None:
+                writer.add_scalar('train/batch_loss', loss.item(), 
+                                epoch * num_batches + batch_idx)
     
-    # Calculate average losses
     avg_loss = total_loss / len(train_loader)
-    
-    # Calculate average component losses
-    avg_score_loss = epoch_score_loss / len(train_loader)
-    avg_consistency_loss = epoch_consistency_loss / trajectory_steps if trajectory_steps > 0 else 0
-    
-    # Log epoch metrics
     if writer is not None:
-        writer.add_scalar('epoch/loss', avg_loss, epoch)
-        writer.add_scalar('epoch/score_loss', avg_score_loss, epoch)
-        writer.add_scalar('epoch/consistency_loss', avg_consistency_loss, epoch)
-        writer.add_scalar('epoch/trajectory_ratio', trajectory_steps / (trajectory_steps + standard_steps), epoch)
+        writer.add_scalar('train/epoch_loss', avg_loss, epoch)
     
     return avg_loss
 
 def evaluate_ctm(config, model, test_loader, diffusion_params, device, epoch, writer=None):
-    """Evaluate a CTM model on a test dataset."""
-    model.eval()
+    """
+    Evaluate the CTM model
     
-    total_score_loss = 0
+    Args:
+        config: Configuration object
+        model: CTM model to evaluate
+        test_loader: DataLoader for test data
+        diffusion_params: Diffusion process parameters
+        device: Device to use for evaluation
+        epoch: Current epoch number
+        writer: TensorBoard writer (optional)
+    """
+    model.eval()
+    total_loss = 0
     
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(test_loader, desc="Evaluating")):
-            # Extract images from batch
-            if isinstance(batch, (list, tuple)):
-                x = batch[0].to(device)
-            else:
-                x = batch.to(device)
+        for data, _ in test_loader:
+            data = data.to(device)
+            batch_size = data.shape[0]
             
-            # Ensure values are in [-1, 1]
-            if x.max() > 1.0:
-                x = x / 127.5 - 1
-            
-            batch_size = x.shape[0]
-            
-            # Sample timestep t
+            # Sample timesteps
             t = torch.randint(0, config.timesteps, (batch_size,), device=device)
             
-            # Add noise to inputs
-            noise = torch.randn_like(x)
+            # Add noise to data
+            noise = torch.randn_like(data)
+            noisy_data = diffusion_params['sqrt_alphas_cumprod'][t].view(-1, 1, 1, 1) * data + \
+                        diffusion_params['sqrt_one_minus_alphas_cumprod'][t].view(-1, 1, 1, 1) * noise
             
-            # Get noise scaling factors for timestep t
-            sqrt_alpha_cumprod = diffusion_params["sqrt_alphas_cumprod"][t].view(-1, 1, 1, 1)
-            sqrt_one_minus_alpha_cumprod = diffusion_params["sqrt_one_minus_alphas_cumprod"][t].view(-1, 1, 1, 1)
+            # Get model prediction
+            pred_noise = model(noisy_data, t)
+            loss = torch.nn.functional.mse_loss(pred_noise, noise)
             
-            # Add noise to images
-            x_t = sqrt_alpha_cumprod * x + sqrt_one_minus_alpha_cumprod * noise
-            
-            # Forward pass (standard mode for evaluation)
-            pred = model(x_t, t)
-            
-            # Compute score loss
-            score_loss = F.mse_loss(pred['score'], noise)
-            
-            # Track loss
-            total_score_loss += score_loss.item()
+            total_loss += loss.item()
     
-    # Calculate average loss
-    avg_score_loss = total_score_loss / len(test_loader)
-    
-    # Log to TensorBoard
+    avg_loss = total_loss / len(test_loader)
     if writer is not None:
-        writer.add_scalar('val/score_loss', avg_score_loss, epoch)
+        writer.add_scalar('val/loss', avg_loss, epoch)
     
-    return avg_score_loss
+    return avg_loss
+
+def calculate_metrics(config, model, real_data_loader, device, num_samples=50000):
+    """
+    Calculate FID score for the model
+    
+    Args:
+        config: Configuration object
+        model: Model to evaluate
+        real_data_loader: DataLoader for real data
+        device: Device to use
+        num_samples: Number of samples to generate
+    """
+    model.eval()
+    
+    # Generate samples
+    samples = []
+    with torch.no_grad():
+        for _ in tqdm(range(0, num_samples, config.batch_size), desc="Generating samples"):
+            batch_size = min(config.batch_size, num_samples - len(samples))
+            sample = model.sample(batch_size, device=device)
+            samples.append(sample.cpu())
+    
+    samples = torch.cat(samples, dim=0)
+    
+    # Calculate FID
+    fid_score = calculate_fid(samples, real_data_loader, device)
+    
+    return {'fid': fid_score}
 
 def main():
     parser = argparse.ArgumentParser(description="Train a Consistency Trajectory Model (CTM)")
@@ -279,9 +183,9 @@ def main():
                         help="Device to use (cuda or cpu)")
     parser.add_argument("--output", type=str, default="output/ctm_models", help="Output directory")
     parser.add_argument("--teacher-path", type=str, default="output/models/teacher/model_epoch_1.pt", 
-                        help="Path to teacher model (if not provided, will use simplified supervision)")
+                        help="Path to teacher model")
     parser.add_argument("--trajectory-prob", type=float, default=0.7,
-                        help="Probability of using trajectory mode during training (higher = better trajectories)")
+                        help="Probability of using trajectory mode during training")
     parser.add_argument("--max-time-diff", type=float, default=0.5,
                         help="Maximum time difference for trajectory training")
     args = parser.parse_args()
@@ -341,6 +245,7 @@ def main():
     # Train
     print(f"Starting training for {args.epochs} epochs")
     best_loss = float('inf')
+    best_fid = float('inf')
     
     for epoch in range(args.epochs):
         # Train
@@ -355,6 +260,21 @@ def main():
         val_loss = evaluate_ctm(
             config, model, test_loader, diffusion_params, device, epoch, writer
         )
+        
+        # Calculate FID score every 5 epochs
+        if (epoch + 1) % 5 == 0:
+            metrics = calculate_metrics(config, model, test_loader, device)
+            fid_score = metrics['fid']
+            writer.add_scalar('metrics/fid', fid_score, epoch)
+            
+            print(f"Epoch {epoch+1} - FID: {fid_score:.2f}")
+            
+            # Save if best FID
+            if fid_score < best_fid:
+                best_fid = fid_score
+                best_fid_path = os.path.join(output_dir, "model_best_fid.pt")
+                torch.save(model.state_dict(), best_fid_path)
+                print(f"New best FID score! Saved model to {best_fid_path}")
         
         # Save model
         checkpoint_path = os.path.join(output_dir, f"model_epoch_{epoch+1}.pt")
@@ -376,6 +296,7 @@ def main():
     print("Training complete!")
     print(f"Final model saved to {final_model_path}")
     print(f"Best model (loss: {best_loss:.4f}) saved to {os.path.join(output_dir, 'model_best.pt')}")
+    print(f"Best FID model (FID: {best_fid:.2f}) saved to {os.path.join(output_dir, 'model_best_fid.pt')}")
 
 if __name__ == "__main__":
-    main() 
+    main()

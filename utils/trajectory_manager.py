@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import pickle
 
-from analysis.metrics.trajectory_metrics import compute_trajectory_metrics, visualize_metrics
+from analysis.trajectory_metrics import compute_trajectory_metrics, visualize_metrics
 
 class TrajectoryManager:
     """
