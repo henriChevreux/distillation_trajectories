@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Main script to run analysis on diffusion models with a focus on model size impact.
-This script replaces the original run_analysis.py with a more modular approach.
+Script to run comprehensive analysis on trained diffusion models.
 """
 
 import os
+import sys
 import argparse
 import torch
-import sys
-import os
-from torch.utils.data import DataLoader
+import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -17,573 +20,538 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from config.config import Config
 from models import SimpleUNet, StudentUNet
 from utils.diffusion import get_diffusion_params
-from utils.trajectory_manager import generate_trajectories_with_disk_storage
+
 from analysis import (
-    compute_trajectory_metrics,
-    visualize_metrics,
-    dimensionality_reduction_analysis,
-    analyze_noise_prediction,
-    analyze_attention_maps,
-    generate_latent_space_visualization,
-    generate_3d_model_size_visualization,
-    create_model_size_comparisons,
-    calculate_and_visualize_fid,
-    analyze_time_dependent_distances,
-    plot_time_dependent_grid,
-    plot_time_dependent_combined,
-    plot_mse_vs_size,
-    plot_metrics_vs_size
-)
-from analysis.noise_fid_analysis import create_denoising_comparison_plot
-
-def parse_args():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(
-        description='Run analysis on diffusion models with a focus on model size impact',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    
-    # Analysis parameters
-    parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
-                        help='Path to teacher model relative to models directory')
-    parser.add_argument('--student_model', type=str, default='student_model_epoch_1.pt',
-                        help='Path to student model relative to models directory')
-    parser.add_argument('--analysis_dir', type=str, default='analysis',
-                        help='Directory to save analysis results')
-    parser.add_argument('--num_samples', type=int, default=50,
-                        help='Number of trajectory samples to generate')
-    
-    # Diffusion process parameters
-    parser.add_argument('--teacher_steps', type=int, default=50,
-                        help='Number of timesteps for teacher model')
-    parser.add_argument('--student_steps', type=int, default=50,
-                        help='Number of timesteps for student model')
-    
-    # Analysis module selection
-    analysis_group = parser.add_argument_group('Analysis Modules')
-    analysis_group.add_argument('--skip_metrics', action='store_true',
-                        help='Skip trajectory metrics analysis')
-    analysis_group.add_argument('--skip_dimensionality', action='store_true',
-                        help='Skip dimensionality reduction analysis')
-    analysis_group.add_argument('--skip_noise', action='store_true',
-                        help='Skip noise prediction analysis')
-    analysis_group.add_argument('--skip_attention', action='store_true',
-                        help='Skip attention map analysis')
-    analysis_group.add_argument('--skip_3d', action='store_true',
-                        help='Skip 3D visualization')
-    analysis_group.add_argument('--skip_fid', action='store_true',
-                        help='Skip FID calculation')
-    analysis_group.add_argument('--only_denoising', action='store_true',
-                        help='Only run the denoising comparison, skip all other analyses')
-    
-    # Model size focus
-    size_group = parser.add_argument_group('Model Size Analysis')
-    size_group.add_argument('--focus_size_range', type=str, default=None,
-                        help='Focus on a specific size range (e.g., "0.1-0.5")')
-    size_group.add_argument('--compare_specific_sizes', type=str, default=None,
-                        help='Compare specific size factors (comma-separated, e.g., "0.1,0.5,1.0")')
-    
-    # Add new argument for denoising comparison
-    parser.add_argument('--num_denoising_samples', type=int, default=5,
-                       help='Number of samples to use in denoising comparison')
-    
-    return parser.parse_args()
-
-def setup_config(args):
-    """Create and configure the Config object based on arguments"""
+    attention_patterns,
+    denoising_comparison,
+    dimensionality_reduction,
+    mse_heatmap,
+    size_analysis,
+    time_analysis,
+    trajectory_metrics
+)   
+def setup_analysis(args):
+    """
+    Set up the analysis environment by loading models and test data
+    """
+    # Load configuration
     config = Config()
     
-    # Override config parameters
-    config.teacher_steps = args.teacher_steps
-    config.student_steps = args.student_steps
-    config.analysis_dir = args.analysis_dir
+    # Load teacher model
+    teacher_path = os.path.join(config.models_dir, 'teacher', 'model_final.pt')
+    if not os.path.exists(teacher_path):
+        raise FileNotFoundError(f"Teacher model not found at {teacher_path}")
     
-    # Create necessary directories
-    os.makedirs(config.analysis_dir, exist_ok=True)
+    # Create teacher model instance
+    teacher_model = SimpleUNet(config)
+    # Load state dict
+    state_dict = torch.load(teacher_path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+    teacher_model.load_state_dict(state_dict)
+    teacher_model.eval()
     
-    # Save the config for reference
-    config_info = vars(args)
-    with open(os.path.join(config.analysis_dir, 'analysis_config.txt'), 'w') as f:
-        for key, value in config_info.items():
-            f.write(f"{key}: {value}\n")
+    # Load student models
+    student_models = {}
+    student_dir = os.path.join(config.models_dir, 'students')
+    for size_factor in config.student_size_factors:
+        for image_size_factor in config.student_image_size_factors:
+            # Check for model in the size_X_img_Y/model.pt format
+            model_dir = os.path.join(student_dir, f'size_{size_factor}_img_{image_size_factor}')
+            model_path = os.path.join(model_dir, 'model.pt')
+            
+            if os.path.exists(model_path):
+                print(f"Loading student model from {model_path}")
+                # Create student model instance with appropriate architecture
+                student_model = StudentUNet(config, size_factor)
+                # Load state dict
+                state_dict = torch.load(model_path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+                student_model.load_state_dict(state_dict)
+                student_model.eval()
+                student_models[(size_factor, image_size_factor)] = student_model
     
-    return config
+    # Load test dataset
+    test_samples = []
+    test_dir = os.path.join(config.data_dir, 'test')
+    if os.path.exists(test_dir):
+        # Create transform for test data
+        transform = transforms.Compose([
+            transforms.Resize(config.teacher_image_size),
+            transforms.CenterCrop(config.teacher_image_size),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        
+        # Load test dataset
+        test_dataset = ImageFolder(test_dir, transform=transform)
+        test_loader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=2
+        )
+        test_samples = next(iter(test_loader))[0]  # Only take the images, not labels
+    else:
+        raise FileNotFoundError(f"Test dataset not found at {test_dir}")
+    
+    return config, teacher_model, student_models, test_samples
 
-def find_student_models(config, args):
-    """Find all available student models based on specified criteria"""
-    student_model_paths = {}
+def run_analysis(args):
+    """
+    Run the complete analysis pipeline
+    """
+    print("Setting up analysis environment...")
+    config, teacher_model, student_models, test_samples = setup_analysis(args)
     
-    # Define the size factors we expect to find
-    expected_size_factors = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # Add aliases for compatibility with analysis modules
+    config.teacher_steps = config.timesteps  # Add this alias
+    config.original_image_size = config.teacher_image_size  # Add this alias
     
-    # Filter by focus range if specified
-    if args.focus_size_range:
+    # Add other potentially missing attributes
+    if not hasattr(config, 'convergence_dir'):
+        config.convergence_dir = os.path.join(config.comparative_dir, 'convergence')
+        os.makedirs(config.convergence_dir, exist_ok=True)
+    
+    # Override args with config if testing mode is enabled
+    if hasattr(config, 'analysis_testing_mode') and config.analysis_testing_mode:
+        if hasattr(config, 'analysis_num_samples'):
+            args.num_samples = config.analysis_num_samples
+            print(f"Using config setting for number of samples: {args.num_samples}")
+    else:
+        # If no testing mode in config, update config with args
+        if hasattr(config, 'analysis_num_samples'):
+            config.analysis_num_samples = args.num_samples
+            
+    print(f"Using {config.timesteps} timesteps for teacher model, {config.student_steps} for student models")
+    print(f"Image size: {config.teacher_image_size}x{config.teacher_image_size}")
+    print(f"Found {len(student_models)} student models")
+    print(f"Analysis samples: {args.num_samples}")
+    
+    # Create output directories
+    os.makedirs(config.analysis_dir, exist_ok=True)
+    for subdir in ['metrics', 'visualizations', 'model_analysis']:
+        os.makedirs(os.path.join(config.analysis_dir, subdir), exist_ok=True)
+    
+    # 1. Denoising Analysis
+    if args.denoising:
+        print("\nRunning denoising analysis...")
+        print(f"Using {args.num_samples} sample(s) for visualization")
+        print(f"Processing {len(student_models)} student models across various resolutions")
+        print(f"This will run a total of {len(student_models) * 4 * config.student_steps} denoising operations for students")
+        print(f"Plus {4 * config.timesteps} denoising operations for the teacher model\n")
+        print("Starting denoising analysis - this may take some time...")
         try:
-            min_size, max_size = map(float, args.focus_size_range.split('-'))
-            expected_size_factors = [sf for sf in expected_size_factors if min_size <= sf <= max_size]
-            print(f"\nFocusing on size range: {min_size} to {max_size}")
-        except:
-            print(f"\nWARNING: Invalid size range format: {args.focus_size_range}. Using all available sizes.")
+            denoising_comparison.create_denoising_comparison_plot(
+                teacher_model, 
+                student_models, 
+                test_samples, 
+                config, 
+                num_samples=args.num_samples
+            )
+            print("Denoising analysis completed successfully!")
+        except Exception as e:
+            print(f"Error in denoising analysis: {e}")
     
-    # Filter by specific sizes if specified
-    if args.compare_specific_sizes:
+    # 2. Attention Analysis
+    if args.attention:
+        print("\nAnalyzing attention patterns...")
         try:
-            specific_sizes = [float(sf) for sf in args.compare_specific_sizes.split(',')]
-            expected_size_factors = [sf for sf in expected_size_factors if sf in specific_sizes]
-            print(f"\nComparing specific size factors: {', '.join(map(str, specific_sizes))}")
-        except:
-            print(f"\nWARNING: Invalid specific sizes format: {args.compare_specific_sizes}. Using all available sizes.")
+            # Check if the model has attention modules
+            has_attention = hasattr(teacher_model, 'attention') or any(hasattr(layer, 'attention') for layer in teacher_model.modules())
+            
+            if has_attention:
+                timesteps = list(range(0, config.timesteps, config.timesteps // 10))
+                attention_patterns.plot_attention_comparison(
+                    teacher_model,
+                    student_models,
+                    test_samples,
+                    timesteps,
+                    config
+                )
+            else:
+                print("Warning: No attention modules found in the models. Skipping attention analysis.")
+        except Exception as e:
+            print(f"Error in attention analysis: {e}")
     
-        # Find all student models with different size factors
-        for size_factor in expected_size_factors:
-            # Try different naming patterns in the new directory structure
-            size_dir = os.path.join(config.student_models_dir, f'size_{size_factor}')
-            if os.path.exists(size_dir):
-                possible_paths = [
-                    os.path.join(size_dir, f'model_epoch_1.pt'),
-                    os.path.join(size_dir, f'model_epoch_0.pt'),
-                    os.path.join(size_dir, f'model.pt')
-                ]
+    # 3. Time-dependent Analysis
+    if args.time:
+        print("\nAnalyzing time-dependent metrics...")
+        try:
+            # Check if we have student models
+            if not student_models:
+                print("Warning: No student models found. Skipping time-dependent analysis.")
+                return
                 
-                # Also check old naming patterns for backward compatibility
-                old_paths = [
-                    os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_1.pt'),
-                    os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_0.pt'),
-                    os.path.join(config.models_dir, f'student_model_{size_factor}_epoch_1.pt'),
-                    os.path.join(config.models_dir, f'student_model_{size_factor}.pt')
-                ]
+            all_distances = {}
+            for (size_factor, _), student_model in student_models.items():
+                # Create teacher and student trajectories
+                teacher_trajectories = []
+                student_trajectories = []
                 
-                all_possible_paths = possible_paths + old_paths
+                # Sample a few trajectories (ensure we have at least 1)
+                sample_count = min(max(1, 10), len(test_samples))
+                for i in range(sample_count):
+                    with torch.no_grad():
+                        # Teacher trajectory
+                        x = test_samples[i:i+1]
+                        teacher_traj = []
+                        for t in reversed(range(config.timesteps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            teacher_traj.append((x.clone(), t))
+                            # Predict next step
+                            pred = teacher_model(x, t_batch)
+                            # Update x for next step
+                            x = pred
+                        teacher_trajectories.append(teacher_traj)
+                        
+                        # Student trajectory
+                        x = test_samples[i:i+1]
+                        student_traj = []
+                        for t in reversed(range(config.student_steps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            student_traj.append((x.clone(), t))
+                            # Predict next step
+                            pred = student_model(x, t_batch)
+                            # Update x for next step
+                            x = pred
+                        student_trajectories.append(student_traj)
                 
-                for path in all_possible_paths:
-                    if os.path.exists(path):
-                        student_model_paths[size_factor] = path
-                        print(f"Found student model with size factor {size_factor} at {path}")
-                        break
+                distances = time_analysis.analyze_time_dependent_distances(
+                    teacher_trajectories,
+                    student_trajectories,
+                    config,
+                    size_factor
+                )
+                all_distances[size_factor] = distances
+            
+            time_analysis.plot_time_dependent_grid(all_distances, config)
+            time_analysis.plot_time_dependent_combined(all_distances, config)
+            time_analysis.plot_phase_analysis(all_distances, config)
+            time_analysis.analyze_convergence_rates(all_distances, config)
+            time_analysis.analyze_size_influence(all_distances, config)
+        except Exception as e:
+            print(f"Error in time-dependent analysis: {e}")
     
-    return student_model_paths
+    # 4. MSE Analysis
+    if args.mse:
+        print("\nGenerating MSE heatmap...")
+        try:
+            # Override the size factor limits if full-mse is specified
+            if args.full_mse:
+                print("Using ALL model and image sizes for comprehensive MSE analysis")
+                config.mse_size_factors_limit = False
+                config.mse_image_size_factors_limit = False
+            
+            # Pass the test samples to the MSE heatmap function
+            mse_heatmap.create_mse_heatmap(config, test_samples)
+        except Exception as e:
+            print(f"Error in MSE analysis: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 5. Trajectory Analysis
+    if args.trajectory:
+        print("\nAnalyzing trajectories...")
+        try:
+            all_metrics = {}
+            
+            for (size_factor, image_size_factor), student_model in student_models.items():
+                # Create teacher and student trajectories
+                teacher_trajectories = []
+                student_trajectories = []
+                
+                # Sample a few trajectories
+                for i in range(min(args.num_samples, len(test_samples))):
+                    with torch.no_grad():
+                        # Teacher trajectory
+                        x = test_samples[i:i+1]
+                        teacher_traj = []
+                        for t in reversed(range(config.timesteps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            pred = teacher_model(x, t_batch)
+                            teacher_traj.append((x.clone(), t))
+                            # Update x for next step
+                            x = pred
+                        teacher_trajectories.append(teacher_traj)
+                        
+                        # Student trajectory
+                        x = test_samples[i:i+1]
+                        if image_size_factor != 1.0:
+                            x = F.interpolate(x, scale_factor=image_size_factor, mode='bilinear')
+                        student_traj = []
+                        for t in reversed(range(config.student_steps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            pred = student_model(x, t_batch)
+                            student_traj.append((x.clone(), t))
+                            # Update x for next step
+                            x = pred
+                        student_trajectories.append(student_traj)
+                
+                # Compute trajectory metrics
+                metrics = trajectory_metrics.compute_trajectory_metrics(
+                    teacher_trajectories,
+                    student_trajectories,
+                    config,
+                    size_factor,
+                    image_size_factor
+                )
+                
+                # Store metrics by size factor for later analysis
+                all_metrics[(size_factor, image_size_factor)] = metrics
+                
+                # Visualize metrics
+                trajectory_metrics.visualize_metrics(metrics, config)
+            
+            # Save all metrics
+            metrics_path = os.path.join(config.analysis_dir, 'metrics', 'trajectory_metrics.pt')
+            torch.save(all_metrics, metrics_path)
+            
+            # Create size-dependent plots if we have metrics for multiple size factors
+            size_factors = list(set([sf for sf, _ in all_metrics.keys()]))
+            if len(size_factors) > 1:
+                # Group metrics by size factor
+                metrics_by_size = {}
+                for (sf, _), metrics in all_metrics.items():
+                    if sf not in metrics_by_size:
+                        metrics_by_size[sf] = []
+                    metrics_by_size[sf].append(metrics)
+                
+                # Average metrics for each size factor
+                avg_metrics = {}
+                for sf, metrics_list in metrics_by_size.items():
+                    avg_metrics[sf] = {
+                        'avg_wasserstein': np.mean([m['avg_wasserstein'] for m in metrics_list]),
+                        'avg_endpoint_distance': np.mean([m['avg_endpoint_distance'] for m in metrics_list]),
+                        'avg_teacher_path_length': np.mean([m['avg_teacher_path_length'] for m in metrics_list]),
+                        'avg_student_path_length': np.mean([m['avg_student_path_length'] for m in metrics_list]),
+                        'avg_teacher_efficiency': np.mean([m['avg_teacher_efficiency'] for m in metrics_list]),
+                        'avg_student_efficiency': np.mean([m['avg_student_efficiency'] for m in metrics_list]),
+                    }
+                
+                # Create size-dependent plots
+                size_analysis.plot_mse_vs_size(avg_metrics, config)
+                size_analysis.plot_metrics_vs_size(avg_metrics, config)
+        except Exception as e:
+            print(f"Error in trajectory analysis: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 6. Model Size Analysis
+    if args.size:
+        print("\nAnalyzing model sizes...")
+        try:
+            print("Size analysis is handled as part of trajectory analysis.")
+        except Exception as e:
+            print(f"Error in size analysis: {e}")
+    
+    # 7. Time Efficiency Analysis
+    if args.efficiency:
+        print("\nAnalyzing time efficiency...")
+        try:
+            # Benchmark model performance
+            times = {}
+            
+            print("\nBenchmarking model inference times...")
+            device = next(teacher_model.parameters()).device
+            
+            # Benchmark teacher model
+            teacher_times = []
+            for _ in range(args.num_runs):
+                x = test_samples[:1].to(device)  # Use a single sample for benchmarking
+                t = torch.randint(0, config.timesteps, (1,), device=device)
+                
+                start_time = torch.cuda.Event(enable_timing=True)
+                end_time = torch.cuda.Event(enable_timing=True)
+                
+                start_time.record()
+                with torch.no_grad():
+                    teacher_model(x, t)
+                end_time.record()
+                
+                torch.cuda.synchronize()
+                teacher_times.append(start_time.elapsed_time(end_time))
+            
+            times['teacher'] = {
+                'mean': np.mean(teacher_times),
+                'std': np.std(teacher_times),
+                'size_factor': 1.0,
+                'image_size_factor': 1.0
+            }
+            
+            # Benchmark student models
+            for (size_factor, image_size_factor), student_model in student_models.items():
+                student_times = []
+                for _ in range(args.num_runs):
+                    x = test_samples[:1].to(device)
+                    if image_size_factor != 1.0:
+                        x = F.interpolate(x, scale_factor=image_size_factor, mode='bilinear')
+                    t = torch.randint(0, config.student_steps, (1,), device=device)
+                    
+                    start_time = torch.cuda.Event(enable_timing=True)
+                    end_time = torch.cuda.Event(enable_timing=True)
+                    
+                    start_time.record()
+                    with torch.no_grad():
+                        student_model(x, t)
+                    end_time.record()
+                    
+                    torch.cuda.synchronize()
+                    student_times.append(start_time.elapsed_time(end_time))
+                
+                times[(size_factor, image_size_factor)] = {
+                    'mean': np.mean(student_times),
+                    'std': np.std(student_times),
+                    'size_factor': size_factor,
+                    'image_size_factor': image_size_factor
+                }
+            
+            # Create visualization
+            plt.figure(figsize=(10, 6))
+            
+            # Extract data for plotting
+            size_factors = sorted(set([k[0] if isinstance(k, tuple) else 1.0 for k in times.keys()]))
+            image_size_factors = sorted(set([k[1] if isinstance(k, tuple) else 1.0 for k in times.keys()]))
+            
+            # Create groups by size factor
+            grouped_data = {}
+            for sf in size_factors:
+                grouped_data[sf] = []
+                for isf in image_size_factors:
+                    key = (sf, isf) if sf != 1.0 else 'teacher'
+                    if key in times:
+                        grouped_data[sf].append((isf, times[key]['mean'], times[key]['std']))
+            
+            # Create bar positions
+            bar_width = 0.15
+            positions = np.arange(len(image_size_factors))
+            
+            # Create a color map
+            colors = plt.cm.viridis(np.linspace(0, 1, len(size_factors)))
+            
+            # Plot bars for each size factor
+            for i, (sf, data) in enumerate(sorted(grouped_data.items())):
+                if data:  # Only plot if we have data for this size factor
+                    bars = []
+                    x_pos = []
+                    heights = []
+                    errors = []
+                    
+                    for isf, mean_time, std_time in sorted(data):
+                        idx = image_size_factors.index(isf)
+                        x_pos.append(positions[idx] + (i - len(size_factors)/2 + 0.5) * bar_width)
+                        heights.append(mean_time)
+                        errors.append(std_time)
+                    
+                    plt.bar(x_pos, heights, bar_width, color=colors[i], label=f'Size: {sf}')
+                    plt.errorbar(x_pos, heights, yerr=errors, fmt='none', ecolor='black', capsize=5)
+            
+            # Add labels and title
+            plt.xlabel('Image Size Factor')
+            plt.ylabel('Inference Time (ms)')
+            plt.title('Model Inference Times for Different Sizes')
+            plt.xticks(positions, [f'{isf}' for isf in image_size_factors])
+            plt.legend()
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            
+            # Save the visualization
+            os.makedirs(os.path.join(config.analysis_dir, 'efficiency'), exist_ok=True)
+            plt.savefig(os.path.join(config.analysis_dir, 'efficiency', 'inference_times.png'))
+            plt.close()
+            
+            # Save raw data
+            efficiency_path = os.path.join(config.analysis_dir, 'metrics', 'efficiency_metrics.pt')
+            torch.save(times, efficiency_path)
+            
+            print(f"Efficiency analysis complete. Results saved to {efficiency_path}")
+        except Exception as e:
+            print(f"Error in efficiency analysis: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 8. Dimensionality Reduction Analysis
+    if args.dimensionality:
+        print("\nAnalyzing latent space trajectories...")
+        try:
+            for (size_factor, image_size_factor), student_model in student_models.items():
+                # Get trajectories for this student model
+                teacher_trajectories = []
+                student_trajectories = []
+                
+                # Sample a few trajectories
+                for _ in range(args.num_samples):
+                    with torch.no_grad():
+                        # Teacher trajectory
+                        x = test_samples[_:_+1]
+                        teacher_traj = []
+                        for t in reversed(range(config.timesteps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            pred = teacher_model(x, t_batch)
+                            teacher_traj.append((x.clone(), t))
+                            # Update x for next step
+                            x = pred
+                        teacher_trajectories.append(teacher_traj)
+                        
+                        # Student trajectory
+                        x = test_samples[_:_+1]
+                        if image_size_factor != 1.0:
+                            x = F.interpolate(x, scale_factor=image_size_factor, mode='bilinear')
+                        student_traj = []
+                        for t in reversed(range(config.student_steps)):
+                            t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
+                            pred = student_model(x, t_batch)
+                            student_traj.append((x.clone(), t))
+                            # Update x for next step
+                            x = pred
+                        student_trajectories.append(student_traj)
+                
+                # Run dimensionality reduction analysis
+                dimensionality_reduction.dimensionality_reduction_analysis(
+                    teacher_trajectories,
+                    student_trajectories,
+                    config,
+                    size_factor,
+                    image_size_factor
+                )
+        except Exception as e:
+            print(f"Error in dimensionality reduction analysis: {e}")
 
 def main():
-    """Main function to run the analysis"""
-    args = parse_args()
-    config = setup_config(args)
+    parser = argparse.ArgumentParser(description='Run analysis on trained diffusion models')
+    parser.add_argument('--denoising', action='store_true', help='Run denoising analysis')
+    parser.add_argument('--attention', action='store_true', help='Run attention pattern analysis')
+    parser.add_argument('--time', action='store_true', help='Run time-dependent analysis')
+    parser.add_argument('--mse', action='store_true', help='Run MSE analysis')
+    parser.add_argument('--trajectory', action='store_true', help='Run trajectory analysis')
+    parser.add_argument('--size', action='store_true', help='Run model size analysis')
+    parser.add_argument('--efficiency', action='store_true', help='Run time efficiency analysis')
+    parser.add_argument('--dimensionality', action='store_true', help='Run dimensionality reduction analysis')
+    parser.add_argument('--all', action='store_true', help='Run all analyses')
+    parser.add_argument('--num-samples', type=int, default=1, help='Number of samples for visualization')
+    parser.add_argument('--batch-size', type=int, default=4, help='Batch size for analysis')
+    parser.add_argument('--num-runs', type=int, default=10, help='Number of runs for efficiency analysis')
+    parser.add_argument('--full-mse', action='store_true', help='Run MSE analysis on all model and image sizes')
     
-    # Determine device
-    device_name = "CUDA" if torch.cuda.is_available() else "MPS" if torch.backends.mps.is_available() else "CPU"
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Running analysis using {device_name} device")
+    args = parser.parse_args()
     
-    # Print analysis configuration
-    print("\n" + "="*80)
-    print("MODEL SIZE IMPACT ANALYSIS")
-    print("="*80)
-    print(f"\nAnalysis Configuration:")
-    print(f"Teacher model: {args.teacher_model}")
-    print(f"Teacher timesteps: {args.teacher_steps}")
-    print(f"Student timesteps: {args.student_steps}")
-    print(f"Number of samples: {args.num_samples}")
-    print(f"Analysis directory: {args.analysis_dir}")
+    # If no specific analysis is selected, run all
+    if not any([args.denoising, args.attention, args.time, args.mse, 
+                args.trajectory, args.size, args.efficiency, args.dimensionality]) and not args.all:
+        args.all = True
     
-    # Check if teacher model exists
-    teacher_model_path = os.path.join(config.teacher_models_dir, args.teacher_model)
-    if not os.path.exists(teacher_model_path):
-        print("\nERROR: Teacher model file not found. You need to train the teacher model first.")
-        print("Please run the training script first to generate the teacher model file:")
-        print("\n    python diffusion_training.py\n")
-        return
+    # If --all is specified, enable all analyses
+    if args.all:
+        args.denoising = True
+        args.attention = True
+        args.time = True
+        args.mse = True
+        args.trajectory = True
+        args.size = True
+        args.efficiency = True
+        args.dimensionality = True
     
-    # Find all student models with different size factors
-    student_model_paths = {}
+    # Create all directories first
+    config = Config()
+    config.create_directories()
     
-    # Define the size factors we expect to find
-    expected_size_factors = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    
-    # Filter by focus range if specified
-    if args.focus_size_range:
-        try:
-            min_size, max_size = map(float, args.focus_size_range.split('-'))
-            expected_size_factors = [sf for sf in expected_size_factors if min_size <= sf <= max_size]
-            print(f"\nFocusing on size range: {min_size} to {max_size}")
-        except:
-            print(f"\nWARNING: Invalid size range format: {args.focus_size_range}. Using all available sizes.")
-    
-    # Filter by specific sizes if specified
-    if args.compare_specific_sizes:
-        try:
-            specific_sizes = [float(sf) for sf in args.compare_specific_sizes.split(',')]
-            expected_size_factors = [sf for sf in expected_size_factors if sf in specific_sizes]
-            print(f"\nComparing specific size factors: {', '.join(map(str, specific_sizes))}")
-        except:
-            print(f"\nWARNING: Invalid specific sizes format: {args.compare_specific_sizes}. Using all available sizes.")
-    
-    # Find all student models with different size factors
-    for size_factor in expected_size_factors:
-        # Try different naming patterns in the new directory structure
-        size_dir = os.path.join(config.student_models_dir, f'size_{size_factor}')
-        if os.path.exists(size_dir):
-            possible_paths = [
-                os.path.join(size_dir, f'model_epoch_1.pt'),
-                os.path.join(size_dir, f'model_epoch_0.pt'),
-                os.path.join(size_dir, f'model.pt')
-            ]
-            
-            # Also check old naming patterns for backward compatibility
-            old_paths = [
-                os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_1.pt'),
-                os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_0.pt'),
-                os.path.join(config.models_dir, f'student_model_{size_factor}_epoch_1.pt'),
-                os.path.join(config.models_dir, f'student_model_{size_factor}.pt')
-            ]
-            
-            all_possible_paths = possible_paths + old_paths
-            
-            for path in all_possible_paths:
-                if os.path.exists(path):
-                    student_model_paths[size_factor] = path
-                    print(f"Found student model with size factor {size_factor} at {path}")
-                    break
-    
-    # If no student models found, check for the single student model specified in args
-    if not student_model_paths and args.student_model:
-        student_model_path = os.path.join(config.models_dir, args.student_model)
-        if os.path.exists(student_model_path):
-            student_model_paths = student_model_path
-            print("\nWARNING: No multiple size models found. Using a single student model.")
-            print("For a comprehensive size analysis, train multiple student models:")
-            print("\n    python train_students.py\n")
-        else:
-            print(f"\nERROR: Student model file {args.student_model} not found.")
-            print("No student models found. Please run the training script with distillation first:")
-            print("\n    python train_students.py\n")
-            return
-    
-    if isinstance(student_model_paths, dict) and not student_model_paths:
-        print("\nERROR: No student models found. Please run the training script with distillation first:")
-        print("\n    python train_students.py\n")
-        return
-    
-    # Print found student models
-    if isinstance(student_model_paths, dict):
-        size_factors = sorted(student_model_paths.keys())
-        print(f"\nFound {len(student_model_paths)} student models with size factors: {size_factors}")
-        print(f"Size range: {min(size_factors)} to {max(size_factors)}")
-        
-        # Print size distribution
-        print("\nSize distribution:")
-        size_ranges = {"Tiny (< 0.1)": 0, "Small (0.1-0.3)": 0, "Medium (0.3-0.7)": 0, "Large (0.7-1.0)": 0}
-        for sf in size_factors:
-            if sf < 0.1:
-                size_ranges["Tiny (< 0.1)"] += 1
-            elif sf < 0.3:
-                size_ranges["Small (0.1-0.3)"] += 1
-            elif sf < 0.7:
-                size_ranges["Medium (0.3-0.7)"] += 1
-            else:
-                size_ranges["Large (0.7-1.0)"] += 1
-        
-        for range_name, count in size_ranges.items():
-            print(f"  {range_name}: {count} models")
-    else:
-        print(f"\nUsing single student model: {args.student_model}")
-        print("Note: For a comprehensive size analysis, train multiple student models.")
-    
-    # Run the analysis
-    print("\n" + "="*80)
-    print("STARTING MODEL SIZE IMPACT ANALYSIS")
-    print("="*80 + "\n")
-    
-    try:
-        # Load teacher model
-        print("Loading teacher model...")
-        teacher_model = SimpleUNet(config).to(device)
-        
-        if os.path.exists(teacher_model_path):
-            teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
-            print(f"Loaded teacher model from {teacher_model_path}")
-        else:
-            print(f"ERROR: Teacher model not found at {teacher_model_path}. Please run training first.")
-            return
-        
-        # Set teacher model to evaluation mode
-        teacher_model.eval()
-        
-        # Handle student models - either a single model or multiple models with different size factors
-        student_models = {}
-        
-        # Function to determine architecture type based on size factor
-        def get_architecture_type(size_factor):
-            if float(size_factor) < 0.1:
-                return 'tiny'     # Use the smallest architecture for very small models
-            elif float(size_factor) < 0.3:
-                return 'small'    # Use small architecture for small models
-            elif float(size_factor) < 0.7:
-                return 'medium'   # Use medium architecture for medium models
-            else:
-                return 'full'     # Use full architecture for large models
-        
-        if isinstance(student_model_paths, dict):
-            # Multiple student models with different size factors
-            for size_factor, path in student_model_paths.items():
-                print(f"Loading student model with size factor {size_factor}...")
-                
-                # Determine architecture type based on size factor
-                architecture_type = get_architecture_type(size_factor)
-                
-                print(f"Using architecture type: {architecture_type} for size factor {size_factor}")
-                student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
-                
-                if os.path.exists(path):
-                    student_model.load_state_dict(torch.load(path, map_location=device))
-                    print(f"Loaded student model from {path}")
-                    student_model.eval()
-                    student_models[float(size_factor)] = student_model
-                else:
-                    print(f"WARNING: Student model not found at {path}. Skipping this size factor.")
-        else:
-            # Single student model (backward compatibility)
-            if student_model_paths is None:
-                # Try to find student models with different size factors
-                size_factors = config.student_size_factors if hasattr(config, 'student_size_factors') else [0.25, 0.5, 0.75, 1.0]
-                for size_factor in size_factors:
-                    path = os.path.join(config.models_dir, f'student_model_size_{size_factor}_epoch_1.pt')
-                    if os.path.exists(path):
-                        print(f"Found student model with size factor {size_factor}...")
-                        architecture_type = get_architecture_type(size_factor)
-                        student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
-                        student_model.load_state_dict(torch.load(path, map_location=device))
-                        student_model.eval()
-                        student_models[float(size_factor)] = student_model
-                    else:
-                        print(f"No student model found for size factor {size_factor}")
-                
-                # If no student models found, try the old naming convention
-                if not student_models:
-                    path = os.path.join(config.models_dir, 'student_model_epoch_1.pt')
-                    if os.path.exists(path):
-                        print("Loading student model with default size...")
-                        student_model = SimpleUNet(config).to(device)
-                        student_model.load_state_dict(torch.load(path, map_location=device))
-                        student_model.eval()
-                        student_models[1.0] = student_model
-                    else:
-                        print(f"ERROR: No student models found. Please run training with distillation first.")
-                        return
-            else:
-                # Single specified student model path
-                path = student_model_paths
-                if os.path.exists(path):
-                    print("Loading student model...")
-                    # Try to extract size factor from filename
-                    size_factor = 1.0  # Default
-                    if "size_" in path:
-                        try:
-                            size_str = path.split("size_")[1].split("_")[0]
-                            size_factor = float(size_str)
-                        except:
-                            pass
-                    
-                    architecture_type = get_architecture_type(size_factor)
-                    student_model = StudentUNet(config, size_factor=size_factor, architecture_type=architecture_type).to(device)
-                    student_model.load_state_dict(torch.load(path, map_location=device))
-                    student_model.eval()
-                    student_models[size_factor] = student_model
-                else:
-                    print(f"ERROR: Student model not found at {path}. Please run training with distillation first.")
-                    return
-        
-        # Print summary of loaded models
-        print(f"\nLoaded {len(student_models)} student models with size factors: {list(student_models.keys())}")
-        
-        # If only running denoising comparison, skip other analyses
-        if args.only_denoising:
-            print("\nRunning only denoising comparison...")
-            # Get some test samples
-            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
-            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
-            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
-            test_samples = test_samples.to(device)
-            
-            # Create the comparison plot
-            create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
-                config,
-                num_samples=args.num_denoising_samples
-            )
-            print("Denoising comparison saved in analysis/denoising_comparison/")
-            return
-        
-        # Analyze each student model
-        all_metrics = {}
-        all_fid_results = {}
-        all_time_distances = {}
-        
-        # Only store trajectory metrics for 3D visualization, not the full trajectories
-        trajectory_metrics_for_3d = {}
-            
-        for size_factor, student_model in student_models.items():
-            print(f"\n{'='*80}")
-            print(f"Analyzing student model with size factor {size_factor}")
-            print(f"{'='*80}")
-            
-            # 1. Generate multiple trajectories
-            print("Generating trajectories and storing on disk...")
-            trajectory_manager = generate_trajectories_with_disk_storage(
-                teacher_model, student_model, config, size_factor, num_samples=args.num_samples
-            )
-            
-            # Run only the selected analysis modules
-            if not args.skip_metrics:
-                # 2. Compute trajectory metrics in batches
-                print("Computing trajectory metrics...")
-                metrics = trajectory_manager.compute_trajectory_metrics_batch(size_factor=size_factor)
-                
-                # 3. Visualize metrics
-                print("Visualizing metrics...")
-                summary = visualize_metrics(metrics, config, suffix=f"_size_{size_factor}")
-                print("Metrics summary:", summary)
-                
-                # Store metrics for comparative analysis
-                all_metrics[size_factor] = summary
-                
-                # Store only the metrics needed for 3D visualization, not the full trajectories
-                trajectory_metrics_for_3d[size_factor] = {
-                    'wasserstein_distances': metrics['wasserstein_distances'],
-                    'wasserstein_distances_per_timestep': metrics['wasserstein_distances_per_timestep'],
-                    'endpoint_distances': metrics['endpoint_distances'],
-                    'teacher_path_lengths': metrics['teacher_path_lengths'],
-                    'student_path_lengths': metrics['student_path_lengths'],
-                    'teacher_efficiency': metrics['teacher_efficiency'],
-                    'student_efficiency': metrics['student_efficiency']
-                }
-            else:
-                print("Skipping trajectory metrics analysis.")
-                
-            # Time-dependent analysis
-            print("Performing time-dependent analysis...")
-            # Load trajectories for time-dependent analysis
-            teacher_traj, student_traj = trajectory_manager.load_trajectories(
-                size_factor=size_factor, 
-                indices=list(range(min(5, args.num_samples)))  # Use at most 5 trajectories
-            )
-            time_distances = analyze_time_dependent_distances(teacher_traj, student_traj, config, size_factor=size_factor)
-            
-            # Store time-dependent metrics for combined visualization
-            all_time_distances[size_factor] = time_distances
-                
-            # Calculate FID scores
-            if not args.skip_fid:
-                print("Calculating FID scores...")
-                fid_results = calculate_and_visualize_fid(
-                    teacher_model, student_model, config, size_factor=size_factor
-                )
-                all_fid_results[size_factor] = fid_results
-            else:
-                print("Skipping FID calculation.")
-            
-            if not args.skip_dimensionality:
-                # 4. Dimensionality reduction analysis
-                print("Performing dimensionality reduction analysis...")
-                # Load a subset of trajectories just for this analysis
-                teacher_subset, student_subset = trajectory_manager.load_trajectories(
-                    size_factor=size_factor, 
-                    indices=list(range(min(5, args.num_samples)))  # Use at most 5 trajectories
-                    )
-                dimensionality_reduction_analysis(teacher_subset, student_subset, config, suffix=f"_size_{size_factor}")
-            else:
-                print("Skipping dimensionality reduction analysis.")
-            
-            if not args.skip_noise:
-                # 5. Noise prediction analysis
-                print("Analyzing noise prediction patterns...")
-                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, suffix=f"_size_{size_factor}")
-            else:
-                print("Skipping noise prediction analysis.")
-            
-            if not args.skip_attention:
-                # 6. Attention map analysis
-                print("Analyzing attention maps...")
-                # Get test samples for attention analysis
-                test_dataset = config.get_test_dataset()
-                test_loader = DataLoader(test_dataset, batch_size=args.num_samples, shuffle=True)
-                test_samples, _ = next(iter(test_loader))
-                test_samples = test_samples.to(device)
-                
-                # Create a dictionary with just this student model for the analysis
-                current_student_models = {size_factor: student_model}
-                attention_metrics = analyze_attention_maps(teacher_model, current_student_models, test_samples, config)
-            else:
-                print("Skipping attention map analysis.")
-            
-            if not args.skip_3d:
-                # 7. Generate 3D latent space visualization
-                print("Creating 3D latent space visualization...")
-                # Load just one trajectory for 3D visualization
-                teacher_viz, student_viz = trajectory_manager.load_trajectories(
-                    size_factor=size_factor, 
-                    indices=[0]  # Just use the first trajectory
-                    )
-                generate_latent_space_visualization(teacher_viz, student_viz, config, suffix=f"_size_{size_factor}")
-            else:
-                print("Skipping 3D latent space visualization.")
-            
-            # Clear trajectories after analysis to free memory
-            import gc
-            gc.collect()  # Force garbage collection
-        
-        # Create comparative visualizations across different student model sizes
-        if len(student_models) > 1 and not args.skip_metrics:
-            print("\nCreating comparative visualizations across student model sizes...")
-            create_model_size_comparisons(all_metrics, all_fid_results, config)
-            
-            # Create 3D visualization that incorporates model size as a dimension
-            print("Creating 3D model size visualization using trajectory metrics...")
-            # We're using trajectory_metrics_for_3d instead of the full trajectories to save memory
-            generate_3d_model_size_visualization(trajectory_metrics_for_3d, trajectory_metrics_for_3d, 
-                                                sorted(student_models.keys()), config)
-            
-            # Create time-dependent visualizations
-            print("Creating time-dependent visualizations...")
-            plot_time_dependent_grid(all_time_distances, config)
-            plot_time_dependent_combined(all_time_distances, config)
-            
-            # Create size-dependent visualizations
-            print("Creating size-dependent visualizations...")
-            plot_mse_vs_size(all_metrics, config)
-            plot_metrics_vs_size(all_metrics, config)
-        
-        # After loading all models and before running other analyses, add:
-        if len(student_models) > 0:
-            print("\nGenerating denoising comparison visualization...")
-            # Get some test samples
-            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
-            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
-            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
-            test_samples = test_samples.to(device)
-            
-            # Create the comparison plot
-            create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
-                config,
-                num_samples=args.num_denoising_samples
-            )
-            print("Denoising comparison saved in analysis/denoising_comparison/")
-        
-        print("\nAnalysis complete. Results saved in the analysis directory.")
-        
-    except RuntimeError as e:
-        if "size mismatch" in str(e):
-            print("\nERROR: Model architecture mismatch.")
-            print("The saved models were trained with a different architecture than the current one.")
-            print("This is likely because the models were trained on MNIST but the code is now configured for CIFAR10.")
-            print("Please train new models with the current architecture:")
-            print("\n    python diffusion_training.py\n")
-        else:
-            # Re-raise if it's not the size mismatch error
-            raise
+    run_analysis(args)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

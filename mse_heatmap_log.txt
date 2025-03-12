@@ -1,0 +1,1156 @@
+
+====== MSE Heatmap Generation ======
+Python version: 3.9.21 (main, Dec  5 2024, 00:00:00) 
+[GCC 11.5.0 20240719 (Red Hat 11.5.0-2)]
+PyTorch version: 2.6.0+cu124
+NumPy version: 1.22.4
+Current working directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories
+
+Key configuration values:
+- Dataset: AFHQ
+- Teacher image size: 256
+- Batch size: 8
+- Student size factors: [0.01, 0.2, 0.4, 0.6, 0.8, 1.0]
+- Student image size factors: [1.0, 0.5, 0.25, 0.125, 0.0625]
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/results
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/models
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/models/teacher
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/models/students
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/data
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/data/trajectories
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/metrics
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/metrics/raw
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/metrics/processed
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/visualizations
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/visualizations/samples
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/visualizations/trajectories
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/visualizations/comparisons
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/model_analysis
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/model_analysis/attention
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/model_analysis/noise
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/model_analysis/dimensionality
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/time_dependent
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/size_dependent
+Created directory: /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/denoising
+
+Generating Reconstruction MSE heatmap...
+Added teacher_steps=50 to config
+Using device: cuda
+Loading teacher model from /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/models/teacher/model_epoch_1.pt
+Initializing diffusion parameters...
+Found 6 model sizes and 5 image sizes
+
+Checking for expected model files:
+All expected model files are present.
+
+Calculating Teacher model reconstruction MSE (image size: 256)
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Traceback (most recent call last):
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py", line 89, in calculate_mse_for_model
+    x_denoised = p_sample(model, x_denoised, t_batch, t, diffusion_params)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/utils/diffusion.py", line 120, in p_sample
+    x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/models/unet.py", line 82, in forward
+    x = down(x)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/batchnorm.py", line 193, in forward
+    return F.batch_norm(
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/functional.py", line 2822, in batch_norm
+    return torch.batch_norm(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.82 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 8.38 GiB memory in use. Of the allocated memory 5.13 GiB is allocated by PyTorch, and 3.06 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.4925e-05
+Denoising from timestep 10/50 (2/5)
+Error calculating reconstruction MSE: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.82 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 8.38 GiB memory in use. Of the allocated memory 5.13 GiB is allocated by PyTorch, and 3.06 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Teacher MSE: nan
+Model sizes:   0%|          | 0/6 [00:00<?, ?it/s]Using architecture type: full for size factor 1.0
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [64, 128, 256, 512]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Traceback (most recent call last):
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py", line 89, in calculate_mse_for_model
+    x_denoised = p_sample(model, x_denoised, t_batch, t, diffusion_params)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/utils/diffusion.py", line 120, in p_sample
+    x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/models/student_unet.py", line 144, in forward
+    x = down(x)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/batchnorm.py", line 193, in forward
+    return F.batch_norm(
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/functional.py", line 2822, in batch_norm
+    return torch.batch_norm(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.81 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 8.38 GiB memory in use. Of the allocated memory 5.20 GiB is allocated by PyTorch, and 2.99 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+Error calculating reconstruction MSE: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.81 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 8.38 GiB memory in use. Of the allocated memory 5.20 GiB is allocated by PyTorch, and 2.99 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Using architecture type: full for size factor 1.0
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [64, 128, 256, 512]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.7410e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.2624e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.5001e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.5086e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.4187e-02
+Average MSE across 5 timesteps: 2.3399e-02
+Using architecture type: full for size factor 1.0
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [64, 128, 256, 512]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0091e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.4649e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.9588e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.1717e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 5.2177e-02
+Average MSE across 5 timesteps: 2.7646e-02
+Using architecture type: full for size factor 1.0
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [64, 128, 256, 512]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0531e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.7012e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.4798e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.9311e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 6.1640e-02
+Average MSE across 5 timesteps: 3.2573e-02
+Using architecture type: full for size factor 1.0
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [64, 128, 256, 512]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes:  17%|█▋        | 1/6 [00:38<03:13, 38.71s/it]Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.1056e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.9396e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 4.0262e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.7084e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 7.2568e-02
+Average MSE across 5 timesteps: 3.7884e-02
+Using architecture type: full for size factor 0.8
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [51, 102, 204, 408]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.6174e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.1795e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.2814e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.1237e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 3.8768e-02
+Average MSE across 5 timesteps: 2.0942e-02
+Using architecture type: full for size factor 0.8
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [51, 102, 204, 408]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.8220e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.3213e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.6056e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.6346e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.5794e-02
+Average MSE across 5 timesteps: 2.4301e-02
+Using architecture type: full for size factor 0.8
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [51, 102, 204, 408]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0264e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.5518e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.1620e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.4654e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 5.5969e-02
+Average MSE across 5 timesteps: 2.9573e-02
+Using architecture type: full for size factor 0.8
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [51, 102, 204, 408]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0563e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.7212e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.5224e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.0304e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 6.3136e-02
+Average MSE across 5 timesteps: 3.3196e-02
+Using architecture type: full for size factor 0.8
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [51, 102, 204, 408]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes:  33%|███▎      | 2/6 [03:03<06:44, 101.21s/it]Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0808e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.9186e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 4.0837e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.7294e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 7.2426e-02
+Average MSE across 5 timesteps: 3.7970e-02
+Using architecture type: medium for size factor 0.6
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [57, 114, 228, 456]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Traceback (most recent call last):
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py", line 89, in calculate_mse_for_model
+    os.makedirs(config.analysis_dir, exist_ok=True)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/utils/diffusion.py", line 120, in p_sample
+    x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/models/student_unet.py", line 144, in forward
+    x = down(x)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/modules/batchnorm.py", line 193, in forward
+    return F.batch_norm(
+  File "/users/eleves-b/2024/charles.de-monchy/.local/lib/python3.9/site-packages/torch/nn/functional.py", line 2822, in batch_norm
+    return torch.batch_norm(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.78 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.13 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 9.07 GiB memory in use. Of the allocated memory 4.67 GiB is allocated by PyTorch, and 4.20 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.5710e-05
+Denoising from timestep 10/50 (2/5)
+Error calculating reconstruction MSE: CUDA out of memory. Tried to allocate 2.78 GiB. GPU 0 has a total capacity of 15.59 GiB of which 2.13 GiB is free. Process 4153954 has 438.00 MiB memory in use. Process 3534488 has 3.58 GiB memory in use. Including non-PyTorch memory, this process has 9.07 GiB memory in use. Of the allocated memory 4.67 GiB is allocated by PyTorch, and 4.20 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Using architecture type: medium for size factor 0.6
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [57, 114, 228, 456]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.7806e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.3179e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.5925e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.6234e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.5455e-02
+Average MSE across 5 timesteps: 2.4178e-02
+Using architecture type: medium for size factor 0.6
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [57, 114, 228, 456]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0153e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.4842e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.9768e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.2019e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 5.2314e-02
+Average MSE across 5 timesteps: 2.7809e-02
+Using architecture type: medium for size factor 0.6
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [57, 114, 228, 456]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0572e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.7094e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.5325e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.9658e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 6.2112e-02
+Average MSE across 5 timesteps: 3.2859e-02
+Using architecture type: medium for size factor 0.6
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [57, 114, 228, 456]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes:  50%|█████     | 3/6 [03:46<03:44, 74.76s/it] Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0952e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.9616e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 4.1538e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.9037e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 7.3145e-02
+Average MSE across 5 timesteps: 3.8689e-02
+Using architecture type: medium for size factor 0.4
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152, 304]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.6489e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.2397e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.3684e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.2177e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 3.9826e-02
+Average MSE across 5 timesteps: 2.1636e-02
+Using architecture type: medium for size factor 0.4
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152, 304]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.8823e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.3819e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.7270e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.7902e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.7557e-02
+Average MSE across 5 timesteps: 2.5329e-02
+Using architecture type: medium for size factor 0.4
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152, 304]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0220e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.5835e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.2306e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.5206e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 5.6762e-02
+Average MSE across 5 timesteps: 3.0042e-02
+Using architecture type: medium for size factor 0.4
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152, 304]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0571e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.7905e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.6980e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.2839e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 6.5610e-02
+Average MSE across 5 timesteps: 3.4688e-02
+Using architecture type: medium for size factor 0.4
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152, 304]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes:  67%|██████▋   | 4/6 [05:18<02:42, 81.22s/it]Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0820e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.9351e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 4.0644e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.7788e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 7.0525e-02
+Average MSE across 5 timesteps: 3.7683e-02
+Using architecture type: small for size factor 0.2
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.7033e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.2616e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.4337e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.3324e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.1859e-02
+Average MSE across 5 timesteps: 2.2447e-02
+Using architecture type: small for size factor 0.2
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.8431e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.4051e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 2.7494e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 3.8242e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 4.8164e-02
+Average MSE across 5 timesteps: 2.5610e-02
+Using architecture type: small for size factor 0.2
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0223e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.5917e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.2133e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 4.4515e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 5.5656e-02
+Average MSE across 5 timesteps: 2.9665e-02
+Using architecture type: small for size factor 0.2
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0567e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.7763e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 3.6661e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.1604e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 6.5246e-02
+Average MSE across 5 timesteps: 3.4276e-02
+Using architecture type: small for size factor 0.2
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [38, 76, 152]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes:  83%|████████▎ | 5/6 [06:35<01:20, 80.03s/it]Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0818e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 1.9908e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 4.2039e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 5.8987e-02
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 7.3803e-02
+Average MSE across 5 timesteps: 3.8969e-02
+Using architecture type: tiny for size factor 0.01
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [3, 6, 12]
+Calculating reconstruction MSE with image size 256 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 256, 256])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 9.9498e-05
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 2.5051e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 7.0853e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 1.2721e-01
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 1.9641e-01
+Average MSE across 5 timesteps: 8.3925e-02
+Using architecture type: tiny for size factor 0.01
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [3, 6, 12]
+Calculating reconstruction MSE with image size 128 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 128, 128])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0062e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 2.7037e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 7.9436e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 1.4630e-01
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 2.2980e-01
+Average MSE across 5 timesteps: 9.6534e-02
+Using architecture type: tiny for size factor 0.01
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [3, 6, 12]
+Calculating reconstruction MSE with image size 64 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 64, 64])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0222e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 2.6910e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 7.6678e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 1.3801e-01
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 2.1344e-01
+Average MSE across 5 timesteps: 9.1028e-02
+Using architecture type: tiny for size factor 0.01
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [3, 6, 12]
+Calculating reconstruction MSE with image size 32 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 32, 32])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0284e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 2.7438e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 7.8275e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 1.4089e-01
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 2.1685e-01
+Average MSE across 5 timesteps: 9.2710e-02
+Using architecture type: tiny for size factor 0.01
+Teacher hidden dims: [64, 128, 256, 512]
+Student hidden dims: [3, 6, 12]
+Calculating reconstruction MSE with image size 16 on cuda:0
+Using 4593 samples from AFHQ dataset (wild category)
+Getting 100 samples for MSE calculation, batch size: 8
+Model sizes: 100%|██████████| 6/6 [06:44<00:00, 55.84s/it]Model sizes: 100%|██████████| 6/6 [06:44<00:00, 67.48s/it]
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:286: MatplotlibDeprecationWarning: 
+The 'quality' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'quality': ...} instead. If any parameter follows 'quality', they should be passed as keyword, not positionally.
+  
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:286: MatplotlibDeprecationWarning: 
+The 'optimize' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'optimize': ...} instead. If any parameter follows 'optimize', they should be passed as keyword, not positionally.
+  
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:290: MatplotlibDeprecationWarning: savefig() got unexpected keyword argument "optimize" which is no longer supported as of 3.3 and will become an error two minor releases later
+  return "N/A"
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:330: MatplotlibDeprecationWarning: 
+The 'quality' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'quality': ...} instead. If any parameter follows 'quality', they should be passed as keyword, not positionally.
+  # Create the figure with enough space for model names and titles
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:330: MatplotlibDeprecationWarning: 
+The 'optimize' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'optimize': ...} instead. If any parameter follows 'optimize', they should be passed as keyword, not positionally.
+  # Create the figure with enough space for model names and titles
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:332: MatplotlibDeprecationWarning: savefig() got unexpected keyword argument "optimize" which is no longer supported as of 3.3 and will become an error two minor releases later
+  figsize=(min(20, n_image_sizes * 2.5),
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:507: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  optimize=True, transparent=False)
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:514: MatplotlibDeprecationWarning: 
+The 'quality' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'quality': ...} instead. If any parameter follows 'quality', they should be passed as keyword, not positionally.
+  
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:514: MatplotlibDeprecationWarning: 
+The 'optimize' parameter of print_jpg() was deprecated in Matplotlib 3.3 and will be removed two minor releases later. Use pil_kwargs={'optimize': ...} instead. If any parameter follows 'optimize', they should be passed as keyword, not positionally.
+  
+/users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/analysis/mse_heatmap.py:518: MatplotlibDeprecationWarning: savefig() got unexpected keyword argument "optimize" which is no longer supported as of 3.3 and will become an error two minor releases later
+  'normalized_results': normalized_results,
+Loaded batch 1 with 8 samples
+Loaded batch 2 with 8 samples
+Loaded batch 3 with 8 samples
+Loaded batch 4 with 8 samples
+Loaded batch 5 with 8 samples
+Loaded batch 6 with 8 samples
+Loaded batch 7 with 8 samples
+Loaded batch 8 with 8 samples
+Loaded batch 9 with 8 samples
+Loaded batch 10 with 8 samples
+Loaded batch 11 with 8 samples
+Loaded batch 12 with 8 samples
+Loaded batch 13 with 8 samples
+Collected 104 samples in 13 batches
+Final test batch shape: torch.Size([100, 3, 16, 16])
+Denoising from timestep 0/50 (1/5)
+  MSE at timestep 0: 1.0423e-04
+Denoising from timestep 10/50 (2/5)
+  MSE at timestep 10: 2.9294e-02
+Denoising from timestep 20/50 (3/5)
+  MSE at timestep 20: 8.7487e-02
+Denoising from timestep 30/50 (4/5)
+  MSE at timestep 30: 1.6108e-01
+Denoising from timestep 40/50 (5/5)
+  MSE at timestep 40: 2.5569e-01
+Average MSE across 5 timesteps: 1.0673e-01
+Using linear color scale with range: nan to nan
+
+Reconstruction MSE Heatmap saved to:
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/reconstruction_mse_heatmap_lowres.jpg (for quick viewing)
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/reconstruction_mse_heatmap.png (for detailed inspection)
+
+Normalized MSE Heatmap saved to:
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/normalized_mse_heatmap_lowres.jpg (for quick viewing)
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/normalized_mse_heatmap.png (for detailed inspection)
+
+Reconstruction MSE Grid saved to:
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/reconstruction_mse_grid_lowres.jpg (for quick viewing)
+- /users/eleves-b/2024/charles.de-monchy/Desktop/distillation_trajectories/output/analysis/comparative/reconstruction_mse/reconstruction_mse_grid.png (for detailed inspection)
+
+Summary Statistics:
+----------------------------------------
+Teacher Reconstruction MSE: nan
+Best student combination:
+  Model size: 0.80x
+  Image size: 1.00x
+  MSE: 2.09e-02
+  Comparison to teacher: +nan%
+
+Most efficient combination (considering MSE and model size):
+  Model size: 0.01x
+  Image size: 1.00x
+  MSE: 8.39e-02
+  Comparison to teacher: +nan%
+  Efficiency score: 8.39e-04

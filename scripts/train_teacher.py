@@ -33,6 +33,36 @@ def train_teacher(config):
     Returns:
         Trained teacher model
     """
+    # Verify dataset exists
+    try:
+        print("Checking dataset availability...")
+        test_loader = get_data_loader(config, image_size=64)  # Small batch for testing
+        next(iter(test_loader))
+        print("Dataset check passed!")
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        print("Please ensure the dataset is downloaded and accessible")
+        return None
+
+    # Memory check with a small batch
+    try:
+        print("\nPerforming memory check...")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        test_model = SimpleUNet(config).to(device)
+        test_batch = torch.randn(4, config.channels, config.teacher_image_size, config.teacher_image_size).to(device)
+        test_t = torch.zeros(4).to(device)
+        _ = test_model(test_batch, test_t)
+        del test_model, test_batch, test_t
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print("Memory check passed!")
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            print(f"Not enough GPU memory. Try reducing batch_size (currently {config.batch_size})")
+            return None
+        else:
+            raise e
+
     # Determine device
     device = torch.device(
         "cuda" if torch.cuda.is_available() else 
@@ -51,15 +81,22 @@ def train_teacher(config):
     # Get data loader
     train_loader = get_data_loader(config)
     
+    # Variables to track best model
+    best_loss = float('inf')
+    best_epoch = -1
+    epochs_without_improvement = 0
+    
     # Training loop
     for epoch in range(config.epochs):
         model.train()
         total_loss = 0
+        num_batches = 0
         
         progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{config.epochs}',
                            leave=config.progress_bar_leave, 
                            ncols=config.progress_bar_ncols, 
                            position=config.progress_bar_position)
+        
         for batch_idx, (images, _) in enumerate(progress_bar):
             images = images.to(device)
             optimizer.zero_grad()
@@ -74,13 +111,29 @@ def train_teacher(config):
             
             # Update progress bar
             total_loss += loss.item()
-            progress_bar.set_postfix(loss=total_loss/(batch_idx+1))
+            num_batches += 1
+            progress_bar.set_postfix(loss=total_loss/num_batches)
         
-        # Save model periodically
-        if (epoch + 1) % config.save_interval == 0 or epoch == config.epochs - 1:
-            torch.save(model.state_dict(), os.path.join(config.teacher_models_dir, f'model_epoch_{epoch+1}.pt'))
+        # Calculate average loss for this epoch
+        avg_loss = total_loss / num_batches
+        print(f"\nEpoch {epoch+1} - Average Loss: {avg_loss:.6f}")
+        
+        # Check if this is the best model so far
+        if avg_loss < best_loss:
+            improvement = best_loss - avg_loss
+            best_loss = avg_loss
+            best_epoch = epoch
+            epochs_without_improvement = 0
             
-            # Generate some samples
+            # Save the model
+            best_model_path = os.path.join(config.teacher_models_dir, 'model_best.pt')
+            if os.path.exists(best_model_path):
+                os.remove(best_model_path)
+            
+            print(f"New best model (loss: {best_loss:.6f}, improvement: {improvement:.6f})")
+            torch.save(model.state_dict(), best_model_path)
+            
+            # Generate samples with best model
             model.eval()
             samples = p_sample_loop(
                 model=model,
@@ -88,7 +141,7 @@ def train_teacher(config):
                 timesteps=config.timesteps,
                 diffusion_params=diffusion_params,
                 device=device,
-                config=config,  # Pass the config parameter here
+                config=config,
                 track_trajectory=False
             )
             
@@ -99,8 +152,19 @@ def train_teacher(config):
             plt.figure(figsize=config.samples_figure_size)
             plt.imshow(grid.permute(1, 2, 0).cpu())
             plt.axis('off')
-            plt.savefig(os.path.join(config.results_dir, f'samples_epoch_{epoch+1}.png'))
+            plt.savefig(os.path.join(config.results_dir, 'samples_best.png'))
             plt.close()
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs (best loss: {best_loss:.6f})")
+            
+            # Early stopping after 10 epochs without improvement
+            if epochs_without_improvement >= 10:
+                print(f"\nStopping early - No improvement for {epochs_without_improvement} epochs")
+                break
+    
+    print(f"\nTraining completed. Best model was from epoch {best_epoch+1} with loss {best_loss:.6f}")
+    print(f"Best model saved to: {os.path.join(config.teacher_models_dir, 'model_best.pt')}")
     
     return model
 
@@ -144,7 +208,7 @@ def main():
     print("="*80)
     print(f"\nTraining Configuration:")
     print(f"Dataset: {config.dataset}")
-    print(f"Image size: {config.image_size}x{config.image_size}")
+    print(f"Image size: {config.teacher_image_size}x{config.teacher_image_size}")
     print(f"Batch size: {config.batch_size}")
     print(f"Timesteps: {config.timesteps}")
     print(f"Epochs: {config.epochs}")

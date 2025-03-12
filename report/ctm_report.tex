@@ -1,0 +1,139 @@
+% CTM Experimental Configuration Report
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[margin=1in]{geometry}
+
+\title{Consistency Trajectory Model (CTM) Experimental Configuration}
+\author{Experimental Setup Summary}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+This report summarizes the experimental configuration for evaluating Consistency Trajectory Models (CTM) on the AFHQ dataset. We focus on key dimensions that affect model performance and computational efficiency.
+
+\section{Paper Results (Reference)}
+The original CTM paper achieved state-of-the-art results:
+\begin{itemize}
+    \item CIFAR-10: FID 1.73 (single-step)
+    \item ImageNet 64x64: FID 1.92 (single-step)
+\end{itemize}
+
+\section{Experimental Dimensions}
+
+\subsection{Model Size Configurations}
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Size Factor & Architecture & Base Channels \\
+\midrule
+0.2 & Small & 48 (0.375×) \\
+0.4 & Medium & 64 (0.5×) \\
+0.6 & Medium & 64 (0.5×) \\
+0.8 & Large & 96 (0.75×) \\
+\bottomrule
+\end{tabular}
+\caption{Model size configurations used in experiments}
+\end{table}
+
+\subsection{Sampling Steps}
+We evaluate the following number of sampling steps:
+\begin{itemize}
+    \item 1-step: Fastest possible generation
+    \item 2-step: Optimal quality-speed trade-off (as found in paper)
+    \item 4-step: Intermediate configuration
+    \item 8-step: Intermediate configuration
+    \item 20-step: High-quality baseline (using DPM-solver)
+\end{itemize}
+
+\subsection{Training Parameters}
+Key trajectory parameters during training:
+\begin{itemize}
+    \item Trajectory probabilities: \{0.5, 0.7\}
+    \item Maximum time differences: \{0.3, 0.5\}
+\end{itemize}
+
+\section{Experimental Matrix}
+Total configurations tested:
+\begin{itemize}
+    \item 4 model sizes × 5 sampling steps = 20 core configurations
+    \item 2 trajectory probabilities × 2 time differences = 4 training variations
+\end{itemize}
+
+\section{Excluded Configurations}
+To maintain experimental scope, we excluded:
+\begin{itemize}
+    \item Very large models (size factor = 1.0)
+    \item Very high sampling steps (> 20)
+    \item Extreme trajectory parameters
+    \item Image size variations
+\end{itemize}
+
+\section{Implementation Details}
+\subsection{Architecture Scaling}
+The model architecture automatically adjusts based on size factor:
+\begin{itemize}
+    \item size\_factor ≤ 0.3: small architecture (48 channels)
+    \item 0.3 < size\_factor ≤ 0.5: medium architecture (64 channels)
+    \item 0.5 < size\_factor ≤ 0.8: large architecture (96 channels)
+\end{itemize}
+
+\subsection{Training Configuration}
+\begin{itemize}
+    \item Early stopping: After 10 epochs without improvement
+    \item Device: Single GPU training
+    \item Dataset: AFHQ (wild category)
+    \item DPM-solver: Used for sampling with steps > 1
+\end{itemize}
+
+\section{Visualization Strategy}
+To effectively visualize our multi-dimensional results, we will use the following approaches:
+
+\subsection{Primary Visualizations}
+\begin{enumerate}
+    \item \textbf{Quality vs Speed Trade-off Matrix}
+    \begin{itemize}
+        \item X-axis: Number of sampling steps (1, 2, 4, 8, 20)
+        \item Y-axis: Model size factors (0.2, 0.4, 0.6, 0.8)
+        \item Color intensity: FID score
+        \item Bubble size: Inference time
+    \end{itemize}
+
+    \item \textbf{Training Configuration Impact}
+    \begin{itemize}
+        \item 2×2 grid of heatmaps (one for each trajectory prob × time diff combination)
+        \item Each heatmap shows model size vs sampling steps
+        \item Color represents relative improvement/degradation from baseline
+    \end{itemize}
+
+    \item \textbf{Pareto Frontier Analysis}
+    \begin{itemize}
+        \item X-axis: Computational cost (inference time)
+        \item Y-axis: Quality (FID score)
+        \item Points: All configurations
+        \item Highlighted line: Pareto optimal configurations
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Secondary Metrics}
+For each optimal configuration identified by the Pareto analysis:
+\begin{itemize}
+    \item Training time
+    \item Memory usage
+    \item Sample visual quality comparisons
+\end{itemize}
+
+This visualization strategy allows us to:
+\begin{itemize}
+    \item Identify the best performing configurations
+    \item Understand quality-speed trade-offs
+    \item Compare training parameter impacts
+    \item Make practical recommendations for different use cases
+\end{itemize}
+
+\end{document} 

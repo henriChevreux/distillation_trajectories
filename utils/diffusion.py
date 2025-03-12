@@ -24,21 +24,6 @@ def get_diffusion_params(timesteps, config=None):
     beta_start = config.beta_start if config else 1e-4
     beta_end = config.beta_end if config else 0.02
     
-    betas = linear_beta_schedule(timesteps, beta_start, beta_end)
-    
-    # Define alphas
-    alphas = 1. - betas
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
-    alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
-    sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
-    
-    # Calculations for diffusion q(x_t | x_{t-1}) and others
-    sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
-    sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
-    
-    # Calculations for posterior q(x_{t-1} | x_t, x_0)
-    posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
-    
     # Get device
     device = torch.device(
         "cuda" if torch.cuda.is_available() else 
@@ -46,15 +31,51 @@ def get_diffusion_params(timesteps, config=None):
         "cpu"
     )
     
-    # Move all tensors to device
-    return {
-        'betas': betas.to(device),
-        'alphas_cumprod': alphas_cumprod.to(device),
-        'sqrt_recip_alphas': sqrt_recip_alphas.to(device),
-        'sqrt_alphas_cumprod': sqrt_alphas_cumprod.to(device),
-        'sqrt_one_minus_alphas_cumprod': sqrt_one_minus_alphas_cumprod.to(device),
-        'posterior_variance': posterior_variance.to(device)
-    }
+    # Initialize parameters on CPU first
+    betas = linear_beta_schedule(timesteps, beta_start, beta_end)
+    alphas = 1. - betas
+    alphas_cumprod = torch.cumprod(alphas, dim=0)
+    alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+    sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+    sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+    sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
+    posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+    
+    # Move tensors to device one at a time with error handling
+    params = {}
+    try:
+        for name, tensor in [
+            ('betas', betas),
+            ('alphas_cumprod', alphas_cumprod),
+            ('sqrt_recip_alphas', sqrt_recip_alphas),
+            ('sqrt_alphas_cumprod', sqrt_alphas_cumprod),
+            ('sqrt_one_minus_alphas_cumprod', sqrt_one_minus_alphas_cumprod),
+            ('posterior_variance', posterior_variance)
+        ]:
+            try:
+                # Clear cache before moving each tensor if using CUDA
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                params[name] = tensor.to(device)
+            except RuntimeError as e:
+                print(f"\nWarning: Failed to move {name} to {device}. Keeping on CPU.")
+                print(f"Error: {str(e)}")
+                params[name] = tensor
+    except Exception as e:
+        print(f"\nError creating diffusion parameters: {str(e)}")
+        # If we fail, try to create parameters on CPU
+        device = torch.device('cpu')
+        print("Falling back to CPU for diffusion parameters")
+        params = {
+            'betas': betas,
+            'alphas_cumprod': alphas_cumprod,
+            'sqrt_recip_alphas': sqrt_recip_alphas,
+            'sqrt_alphas_cumprod': sqrt_alphas_cumprod,
+            'sqrt_one_minus_alphas_cumprod': sqrt_one_minus_alphas_cumprod,
+            'posterior_variance': posterior_variance
+        }
+    
+    return params
 
 def q_sample(x_start, t, diffusion_params):
     """

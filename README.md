@@ -107,6 +107,12 @@ Options:
 - `--batch_size N`: Batch size (default: 64)
 - `--timesteps N`: Number of diffusion timesteps (default: 50)
 
+**Recommended for best results**:
+```bash
+# Train teacher with 1000 timesteps (best quality, slower training)
+python scripts/train_teacher.py --timesteps 1000
+```
+
 #### Student Models
 
 Train student models with various size factors:
@@ -127,6 +133,58 @@ Student models are organized by size factor and architecture type:
 - **Small** (0.1-0.3): 3 layers with smaller dimensions
 - **Medium** (0.3-0.7): 3 layers with 75% of teacher dimensions
 - **Full** (0.7-1.0): Same architecture as teacher
+
+#### Consistency Trajectory Model (CTM)
+
+The Consistency Trajectory Model extends diffusion models to enable arbitrary timestep sampling and much faster generation. Unlike traditional diffusion models, CTM can generate high-quality samples in 5-20 steps instead of hundreds or thousands.
+
+Train a CTM model:
+```bash
+python scripts/train_ctm.py
+```
+
+Or with custom parameters:
+```bash
+python scripts/train_ctm.py --size 0.2 --epochs 50
+```
+
+Test a CTM model:
+```bash
+python scripts/test_ctm.py
+```
+
+**Recommended settings**:
+The CTM is configured to use DPM-solver with 20 steps by default, which offers an excellent balance of quality and speed.
+
+Options:
+- `--size N`: Model size factor (default: 0.2)
+- `--batch-size N`: Batch size (default: 16)
+- `--epochs N`: Number of training epochs (default: 50)
+- `--trajectory-prob N`: Probability of using trajectory mode (default: 0.7)
+- `--max-time-diff N`: Maximum time difference for trajectory (default: 0.5)
+- `--teacher-path PATH`: Path to teacher model (default: output/models/teacher/model_epoch_1.pt)
+
+Or test with custom parameters:
+```bash
+python scripts/test_ctm.py --size 0.2 --sample-steps 20
+```
+
+Options for testing:
+- `--size N`: Model size factor (default: 0.2)
+- `--sample-steps N`: Default number of sampling steps (default: 20)
+- `--use-dpm`: Use DPM-solver for sampling (default: True)
+- `--device [cuda|cpu]`: Device to use (default: cuda if available)
+
+Generate MSE heatmaps for CTM models:
+```bash
+python scripts/test_ctm_mse.py --ctm-dir output/ctm_models
+```
+
+CTM models offer several advantages:
+- **Faster sampling**: 5-20 steps vs 1000+ steps for traditional diffusion
+- **Flexible quality-speed tradeoff**: Adjust steps at inference time
+- **Better small models**: Small CTM models often match larger traditional models
+- **Trajectory learning**: Jumping directly between any points in the diffusion process
 
 ### Running Analysis
 
