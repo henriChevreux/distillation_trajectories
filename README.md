@@ -4,21 +4,25 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Installation](#installation)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [Usage Guide](#usage-guide)
-  - [Training Models](#training-models)
-  - [Running Analysis](#running-analysis)
-  - [CPU Mode](#cpu-mode)
-  - [Testing](#testing)
-- [Configuration](#configuration)
-- [Analysis Outputs](#analysis-outputs)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-- [Citation](#citation)
+- [Diffusion Model Analysis Toolkit](#diffusion-model-analysis-toolkit)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [🔍 Overview](#-overview)
+  - [✨ Features](#-features)
+  - [📦 Installation](#-installation)
+  - [📁 Project Structure](#-project-structure)
+  - [🚀 Quick Start](#-quick-start)
+  - [📖 Usage Guide](#-usage-guide)
+    - [Training Models](#training-models)
+      - [Teacher Model](#teacher-model)
+      - [Student Models](#student-models)
+    - [Running Analysis](#running-analysis)
+    - [CPU Mode](#cpu-mode)
+    - [Testing](#testing)
+  - [⚙️ Configuration](#️-configuration)
+  - [📊 Analysis Outputs](#-analysis-outputs)
+  - [❓ Troubleshooting](#-troubleshooting)
+  - [📄 License](#-license)
+  - [📝 Citation](#-citation)
 
 ## 🔍 Overview
 
@@ -137,7 +141,7 @@ python scripts/run_analysis.py [OPTIONS]
 ```
 
 Options:
-- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_1.pt")
+- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_10.pt")
 - `--num_samples N`: Number of trajectory samples (default: 50)
 - `--teacher_steps N`: Teacher timesteps (default: 50)
 - `--student_steps N`: Student timesteps (default: 50)

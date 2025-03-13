@@ -21,6 +21,7 @@ from utils.trajectory_manager import generate_trajectories_with_disk_storage
 from analysis import (
     compute_trajectory_metrics,
     visualize_metrics,
+    visualize_batch_metrics,
     dimensionality_reduction_analysis,
     analyze_noise_prediction,
     analyze_attention_maps,
@@ -65,14 +66,14 @@ def parse_args():
                         help='Skip trajectory metrics analysis')
     analysis_group.add_argument('--skip_dimensionality', action='store_true',
                         help='Skip dimensionality reduction analysis')
-    analysis_group.add_argument('--skip_noise', action='store_true',
-                        help='Skip noise prediction analysis')
+    analysis_group.add_argument('--run_noise', action='store_true',
+                        help='Run noise prediction analysis (disabled by default)')
     analysis_group.add_argument('--skip_attention', action='store_true',
                         help='Skip attention map analysis')
     analysis_group.add_argument('--skip_3d', action='store_true',
                         help='Skip 3D visualization')
-    analysis_group.add_argument('--skip_fid', action='store_true',
-                        help='Skip FID calculation')
+    analysis_group.add_argument('--run_fid', action='store_true',
+                        help='Run FID calculation (disabled by default)')
     analysis_group.add_argument('--only_denoising', action='store_true',
                         help='Only run the denoising comparison, skip all other analyses')
     
@@ -405,11 +406,9 @@ def main():
             
             # Create the comparison plot
             create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
+                {**{"teacher": teacher_model}, **student_models},
                 config,
-                num_samples=args.num_denoising_samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
             return
@@ -441,7 +440,7 @@ def main():
                 
                 # 3. Visualize metrics
                 print("Visualizing metrics...")
-                summary = visualize_metrics(metrics, config, suffix=f"_size_{size_factor}")
+                summary = visualize_batch_metrics(metrics, config, suffix=f"_size_{size_factor}")
                 print("Metrics summary:", summary)
                 
                 # Store metrics for comparative analysis
@@ -473,7 +472,7 @@ def main():
             all_time_distances[size_factor] = time_distances
                 
             # Calculate FID scores
-            if not args.skip_fid:
+            if args.run_fid:
                 print("Calculating FID scores...")
                 fid_results = calculate_and_visualize_fid(
                     teacher_model, student_model, config, size_factor=size_factor
@@ -490,14 +489,14 @@ def main():
                     size_factor=size_factor, 
                     indices=list(range(min(5, args.num_samples)))  # Use at most 5 trajectories
                     )
-                dimensionality_reduction_analysis(teacher_subset, student_subset, config, suffix=f"_size_{size_factor}")
+                dimensionality_reduction_analysis(teacher_subset, student_subset, config, size_factor=size_factor)
             else:
                 print("Skipping dimensionality reduction analysis.")
             
-            if not args.skip_noise:
+            if args.run_noise:
                 # 5. Noise prediction analysis
                 print("Analyzing noise prediction patterns...")
-                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, suffix=f"_size_{size_factor}")
+                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, size_factor=size_factor)
             else:
                 print("Skipping noise prediction analysis.")
             
@@ -512,7 +511,7 @@ def main():
                 
                 # Create a dictionary with just this student model for the analysis
                 current_student_models = {size_factor: student_model}
-                attention_metrics = analyze_attention_maps(teacher_model, current_student_models, test_samples, config)
+                attention_metrics = analyze_attention_maps(teacher_model, student_model, config, size_factor=size_factor)
             else:
                 print("Skipping attention map analysis.")
             
@@ -524,7 +523,7 @@ def main():
                     size_factor=size_factor, 
                     indices=[0]  # Just use the first trajectory
                     )
-                generate_latent_space_visualization(teacher_viz, student_viz, config, suffix=f"_size_{size_factor}")
+                generate_latent_space_visualization(teacher_viz, student_viz, config, size_factor=size_factor)
             else:
                 print("Skipping 3D latent space visualization.")
             
@@ -540,8 +539,7 @@ def main():
             # Create 3D visualization that incorporates model size as a dimension
             print("Creating 3D model size visualization using trajectory metrics...")
             # We're using trajectory_metrics_for_3d instead of the full trajectories to save memory
-            generate_3d_model_size_visualization(trajectory_metrics_for_3d, trajectory_metrics_for_3d, 
-                                                sorted(student_models.keys()), config)
+            generate_3d_model_size_visualization(trajectory_metrics_for_3d, config)
             
             # Create time-dependent visualizations
             print("Creating time-dependent visualizations...")
@@ -564,11 +562,9 @@ def main():
             
             # Create the comparison plot
             create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
+                {**{"teacher": teacher_model}, **student_models},
                 config,
-                num_samples=args.num_denoising_samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
         

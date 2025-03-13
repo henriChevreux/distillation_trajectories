@@ -1,0 +1,6 @@
+avg_wasserstein: 0.10604775046989268
+avg_teacher_path_length: 2.5222674906104805
+avg_student_path_length: 2.5192059870660306
+avg_endpoint_distance: 8.073663711547852
+avg_teacher_efficiency: 0.18579309559331886
+avg_student_efficiency: 0.15399271205140727

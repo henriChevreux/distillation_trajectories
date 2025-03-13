@@ -50,8 +50,8 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
-        # Generate random noise
-        x = torch.randn(1, self.config.channels, self.config.image_size, self.config.image_size).to(self.device)
+        # Generate random noise for teacher
+        x_teacher = torch.randn(1, self.config.channels, self.config.image_size, self.config.image_size).to(self.device)
         
         # Generate teacher trajectory
         teacher_trajectory = []
@@ -60,23 +60,29 @@ class TrajectoryManager:
                 t_tensor = torch.tensor([t], device=self.device)
                 
                 # Store current state
-                teacher_trajectory.append((x.clone(), t))
+                teacher_trajectory.append((x_teacher.clone(), t))
                 
                 # Predict noise
-                noise_pred = self.teacher_model(x, t_tensor)
+                noise_pred = self.teacher_model(x_teacher, t_tensor)
                 
                 # Update x
                 if t > 0:
                     # Sample noise for the next step
-                    noise = torch.randn_like(x)
-                    x = self._update_x(x, noise_pred, t, noise)
+                    noise = torch.randn_like(x_teacher)
+                    x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
         
-        # Reset to the same starting noise
+        # Reset to the same starting noise for student
         if seed is not None:
             torch.manual_seed(seed)
             np.random.seed(seed)
         
-        x = torch.randn(1, self.config.channels, self.config.image_size, self.config.image_size).to(self.device)
+        # Generate random noise for student (may have different size)
+        # Check if student model has a different image size
+        student_image_size = self.config.image_size
+        if hasattr(self.student_model, 'image_size'):
+            student_image_size = self.student_model.image_size
+        
+        x_student = torch.randn(1, self.config.channels, student_image_size, student_image_size).to(self.device)
         
         # Generate student trajectory
         student_trajectory = []
@@ -85,16 +91,29 @@ class TrajectoryManager:
                 t_tensor = torch.tensor([t], device=self.device)
                 
                 # Store current state
-                student_trajectory.append((x.clone(), t))
+                student_trajectory.append((x_student.clone(), t))
                 
                 # Predict noise
-                noise_pred = self.student_model(x, t_tensor)
+                noise_pred = self.student_model(x_student, t_tensor)
                 
                 # Update x
                 if t > 0:
                     # Sample noise for the next step
-                    noise = torch.randn_like(x)
-                    x = self._update_x(x, noise_pred, t, noise)
+                    noise = torch.randn_like(x_student)
+                    x_student = self._update_x(x_student, noise_pred, t, noise)
+        
+        # Resize student trajectory images to match teacher size if needed
+        if student_image_size != self.config.image_size:
+            resized_student_trajectory = []
+            for img, t in student_trajectory:
+                resized_img = torch.nn.functional.interpolate(
+                    img, 
+                    size=(self.config.image_size, self.config.image_size),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+                resized_student_trajectory.append((resized_img, t))
+            student_trajectory = resized_student_trajectory
         
         return teacher_trajectory, student_trajectory
     
@@ -114,6 +133,16 @@ class TrajectoryManager:
         # Simple implementation - can be replaced with more sophisticated methods
         alpha = 0.9  # Placeholder - should be calculated based on beta schedule
         beta = 1 - alpha
+        
+        # Ensure noise_pred has the same shape as x
+        if noise_pred.shape != x.shape:
+            # Resize noise_pred to match x
+            noise_pred = torch.nn.functional.interpolate(
+                noise_pred, 
+                size=x.shape[2:],
+                mode='bilinear', 
+                align_corners=True
+            )
         
         # Update x - convert alpha to tensor to avoid TypeError
         alpha_tensor = torch.tensor(alpha, device=x.device)
@@ -257,12 +286,28 @@ class TrajectoryManager:
                     teacher_trajectories.append(teacher_traj)
                     student_trajectories.append(student_traj)
             
-            # Compute metrics for this batch
-            batch_metrics = compute_trajectory_metrics(teacher_trajectories, student_trajectories, self.config)
-            
-            # Append to all metrics
-            for key in all_metrics:
-                all_metrics[key].extend(batch_metrics[key])
+            # Process each trajectory pair separately
+            for t_traj, s_traj in zip(teacher_trajectories, student_trajectories):
+                # Compute metrics for this trajectory pair
+                metrics = compute_trajectory_metrics(t_traj, s_traj, self.config)
+                
+                # Add to aggregated metrics
+                all_metrics['wasserstein_distances'].append(metrics['mean_wasserstein'])
+                all_metrics['wasserstein_distances_per_timestep'].append(metrics['wasserstein_distances'])
+                all_metrics['endpoint_distances'].append(metrics['endpoint_distance'])
+                all_metrics['teacher_path_lengths'].append(metrics['teacher_path_length'])
+                all_metrics['student_path_lengths'].append(metrics['student_path_length'])
+                all_metrics['teacher_efficiency'].append(metrics['teacher_efficiency'])
+                all_metrics['student_efficiency'].append(metrics['student_efficiency'])
+                
+                # Add architecture type if available
+                if hasattr(self, 'architecture_type'):
+                    all_metrics['architecture_type'].append(self.architecture_type)
+        
+        # Compute averages for scalar metrics
+        for key in ['endpoint_distances', 'teacher_path_lengths', 'student_path_lengths', 'teacher_efficiency', 'student_efficiency', 'wasserstein_distances']:
+            if key in all_metrics and all_metrics[key]:
+                all_metrics[key + '_avg'] = sum(all_metrics[key]) / len(all_metrics[key])
         
         return all_metrics
 

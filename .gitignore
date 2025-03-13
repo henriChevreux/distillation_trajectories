@@ -33,7 +33,6 @@ venv.bak/**/*
 **/env/
 Include/
 Lib/
-Scripts/
 pyvenv.cfg
 .Python
 pip-selfcheck.json
@@ -49,9 +48,6 @@ pip-selfcheck.json
 .settings/
 
 # Project specific
-models/
-results/
-output/analysis/
 analysis-old/
 trajectories/
 test_results/
@@ -99,3 +95,6 @@ htmlcov/
 
 # Diffusers cache
 .diffusers/ 
+
+*.gif
+*.txt

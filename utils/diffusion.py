@@ -94,9 +94,41 @@ def p_sample(model, x, t, t_index, diffusion_params):
     )
     sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
     
+    # Get model prediction
+    model_output = model(x, t)
+    
+    # Ensure model output has the same size as input
+    if model_output.shape != x.shape:
+        print(f"Size mismatch: model output {model_output.shape} != input {x.shape}")
+        try:
+            # Try to use interpolation to resize the model output
+            model_output = torch.nn.functional.interpolate(
+                model_output, 
+                size=(x.shape[2], x.shape[3]),
+                mode='bilinear', 
+                align_corners=True
+            )
+            print(f"Resized model output to {model_output.shape}")
+        except Exception as e:
+            print(f"Error resizing model output: {e}")
+            # If interpolation fails, try a more direct approach
+            if model_output.dim() == x.dim():
+                # If dimensions match but sizes don't, try to pad or crop
+                if model_output.shape[2] < x.shape[2] or model_output.shape[3] < x.shape[3]:
+                    # Pad if model output is smaller
+                    pad_h = max(0, x.shape[2] - model_output.shape[2])
+                    pad_w = max(0, x.shape[3] - model_output.shape[3])
+                    model_output = torch.nn.functional.pad(model_output, (0, pad_w, 0, pad_h))
+                else:
+                    # Crop if model output is larger
+                    model_output = model_output[:, :, :x.shape[2], :x.shape[3]]
+            else:
+                # If dimensions don't match, this is a more serious issue
+                raise ValueError(f"Cannot reconcile model output shape {model_output.shape} with input shape {x.shape}")
+    
     # Equation 11 in the DDPM paper
     model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
+        x - betas_t * model_output / sqrt_one_minus_alphas_cumprod_t
     )
     
     if t_index == 0:
