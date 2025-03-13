@@ -93,6 +93,16 @@ def generate_image_with_trajectory(model, diffusion_params, config, device):
             # Predict noise
             noise_pred = model(x, t_tensor)
             
+            # Resize noise prediction if dimensions don't match
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred,
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear',
+                    align_corners=True
+                )
+            
             # Update x
             if t > 0:
                 # Sample noise for the next step

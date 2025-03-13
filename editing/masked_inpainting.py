@@ -130,6 +130,16 @@ def generate_image(model, diffusion_params, config, device):
             # Predict noise
             noise_pred = model(x, t_tensor)
             
+            # Resize noise prediction if dimensions don't match
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred,
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear',
+                    align_corners=True
+                )
+            
             # Update x
             if t > 0:
                 # Sample noise for the next step
@@ -194,6 +204,16 @@ def inpaint_with_trajectory(model, diffusion_params, original_image, mask, confi
             # Predict noise
             noise_pred = model(x, t_tensor)
             
+            # Resize noise prediction if dimensions don't match
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred,
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear',
+                    align_corners=True
+                )
+            
             # Update x
             if t > 0:
                 # Sample noise for the next step
@@ -216,6 +236,72 @@ def inpaint_with_trajectory(model, diffusion_params, original_image, mask, confi
                 
                 # Apply mask: keep original in non-masked areas, use updated in masked areas
                 x = mask * x_updated + (1 - mask) * original_scaled
+    
+    # Normalize to [0, 1] range for visualization
+    image = (x + 1) / 2
+    image = torch.clamp(image, 0, 1)
+    
+    return image, trajectory
+
+def generate_image_with_trajectory(model, diffusion_params, config, device):
+    """
+    Generate an image and record the trajectory
+    
+    Args:
+        model: Diffusion model
+        diffusion_params: Diffusion parameters
+        config: Configuration object
+        device: Device to run on
+        
+    Returns:
+        Tuple of (generated_image, trajectory)
+    """
+    # Initialize from random noise
+    x = torch.randn(1, config.channels, config.image_size, config.image_size).to(device)
+    
+    # Record trajectory
+    trajectory = []
+    
+    # Denoise step by step
+    with torch.no_grad():
+        for t in tqdm(range(diffusion_params["timesteps"] - 1, -1, -1), desc="Generating image"):
+            t_tensor = torch.tensor([t], device=device)
+            
+            # Record current state
+            trajectory.append((x.clone(), t))
+            
+            # Predict noise
+            noise_pred = model(x, t_tensor)
+            
+            # Resize noise prediction if dimensions don't match
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred,
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear',
+                    align_corners=True
+                )
+            
+            # Update x
+            if t > 0:
+                # Sample noise for the next step
+                noise = torch.randn_like(x)
+                
+                # Apply diffusion update
+                alpha_t = diffusion_params["alphas"][t]
+                alpha_t_prev = diffusion_params["alphas"][t-1] if t > 0 else torch.tensor(1.0)
+                
+                # Compute coefficients
+                c1 = torch.sqrt(alpha_t_prev) / torch.sqrt(alpha_t)
+                c2 = torch.sqrt(1 - alpha_t_prev) - torch.sqrt(alpha_t_prev / alpha_t) * torch.sqrt(1 - alpha_t)
+                
+                # Update x
+                x = c1 * x - c2 * noise_pred
+                
+                # Add noise for the next step
+                sigma_t = torch.sqrt(1 - alpha_t_prev) * torch.sqrt(1 - alpha_t / alpha_t_prev)
+                x = x + sigma_t * noise
     
     # Normalize to [0, 1] range for visualization
     image = (x + 1) / 2

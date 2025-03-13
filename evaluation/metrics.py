@@ -80,82 +80,117 @@ def compute_fid(real_images, generated_images, device, batch_size=8):
     Returns:
         FID score (lower means more similar)
     """
-    # Load Inception model
-    inception = inception_v3(pretrained=True, transform_input=False).to(device)
-    inception.eval()
-    
-    # Remove final classification layer
-    inception.fc = torch.nn.Identity()
-    
-    # Define preprocessing
-    preprocess = transforms.Compose([
-        transforms.Resize((299, 299)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-    
-    # Check if images are too small and resize if necessary
-    # Inception v3 requires images to be at least 75x75
-    min_size = 75
-    for i in range(len(real_images)):
-        if real_images[i].shape[2] < min_size or real_images[i].shape[3] < min_size:
-            print(f"Resizing real image from {real_images[i].shape[2]}x{real_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
-            real_images[i] = torch.nn.functional.interpolate(
-                real_images[i], 
-                size=(min_size, min_size),
-                mode='bilinear', 
-                align_corners=True
-            )
-    
-    for i in range(len(generated_images)):
-        if generated_images[i].shape[2] < min_size or generated_images[i].shape[3] < min_size:
-            print(f"Resizing generated image from {generated_images[i].shape[2]}x{generated_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
-            generated_images[i] = torch.nn.functional.interpolate(
-                generated_images[i], 
-                size=(min_size, min_size),
-                mode='bilinear', 
-                align_corners=True
-            )
-    
-    # Extract features for real images
-    real_features = []
-    with torch.no_grad():
-        for i in range(0, len(real_images), batch_size):
-            batch = torch.cat(real_images[i:i+batch_size])
-            batch = preprocess(batch)
-            features = inception(batch)
-            real_features.append(features.cpu().numpy())
-    
-    real_features = np.concatenate(real_features)
-    
-    # Extract features for generated images
-    gen_features = []
-    with torch.no_grad():
-        for i in range(0, len(generated_images), batch_size):
-            batch = torch.cat(generated_images[i:i+batch_size])
-            batch = preprocess(batch)
-            features = inception(batch)
-            gen_features.append(features.cpu().numpy())
-    
-    gen_features = np.concatenate(gen_features)
-    
-    # Calculate mean and covariance
-    mu_real = np.mean(real_features, axis=0)
-    sigma_real = np.cov(real_features, rowvar=False)
-    
-    mu_gen = np.mean(gen_features, axis=0)
-    sigma_gen = np.cov(gen_features, rowvar=False)
-    
-    # Calculate FID
-    diff = mu_real - mu_gen
-    covmean = sqrtm(sigma_real.dot(sigma_gen))
-    
-    # Check for numerical issues
-    if np.iscomplexobj(covmean):
-        covmean = covmean.real
-    
-    fid = diff.dot(diff) + np.trace(sigma_real + sigma_gen - 2 * covmean)
-    
-    return fid
+    # Check if we have enough images
+    if len(real_images) < 2 or len(generated_images) < 2:
+        print("Warning: Not enough images for FID calculation (need at least 2 images per set)")
+        return 999.0  # Return a placeholder value
+        
+    try:
+        # Load Inception model
+        inception = inception_v3(pretrained=True, transform_input=False).to(device)
+        inception.eval()
+        
+        # Remove final classification layer
+        inception.fc = torch.nn.Identity()
+        
+        # Define preprocessing
+        preprocess = transforms.Compose([
+            transforms.Resize((299, 299)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        
+        # Check if images are too small and resize if necessary
+        # Inception v3 requires images to be at least 75x75
+        min_size = 75
+        for i in range(len(real_images)):
+            if real_images[i].shape[2] < min_size or real_images[i].shape[3] < min_size:
+                print(f"Resizing real image from {real_images[i].shape[2]}x{real_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
+                real_images[i] = torch.nn.functional.interpolate(
+                    real_images[i], 
+                    size=(min_size, min_size),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+        
+        for i in range(len(generated_images)):
+            if generated_images[i].shape[2] < min_size or generated_images[i].shape[3] < min_size:
+                print(f"Resizing generated image from {generated_images[i].shape[2]}x{generated_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
+                generated_images[i] = torch.nn.functional.interpolate(
+                    generated_images[i], 
+                    size=(min_size, min_size),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+        
+        # Extract features for real images
+        real_features = []
+        with torch.no_grad():
+            for i in range(0, len(real_images), batch_size):
+                batch = torch.cat(real_images[i:i+batch_size])
+                batch = preprocess(batch)
+                features = inception(batch)
+                real_features.append(features.cpu().numpy())
+        
+        real_features = np.concatenate(real_features)
+        
+        # Extract features for generated images
+        gen_features = []
+        with torch.no_grad():
+            for i in range(0, len(generated_images), batch_size):
+                batch = torch.cat(generated_images[i:i+batch_size])
+                batch = preprocess(batch)
+                features = inception(batch)
+                gen_features.append(features.cpu().numpy())
+        
+        gen_features = np.concatenate(gen_features)
+        
+        # Calculate mean and covariance
+        mu_real = np.mean(real_features, axis=0)
+        sigma_real = np.cov(real_features, rowvar=False)
+        
+        mu_gen = np.mean(gen_features, axis=0)
+        sigma_gen = np.cov(gen_features, rowvar=False)
+        
+        # Check if covariance matrices are valid
+        if np.isnan(sigma_real).any() or np.isnan(sigma_gen).any():
+            print("Warning: NaN values in covariance matrices, cannot compute FID")
+            return 999.0
+            
+        if np.isinf(sigma_real).any() or np.isinf(sigma_gen).any():
+            print("Warning: Infinite values in covariance matrices, cannot compute FID")
+            return 999.0
+            
+        # Ensure matrices are positive semi-definite
+        min_eig_real = np.min(np.linalg.eigvals(sigma_real))
+        min_eig_gen = np.min(np.linalg.eigvals(sigma_gen))
+        
+        if min_eig_real < 0 or min_eig_gen < 0:
+            print("Warning: Covariance matrices are not positive semi-definite, adding regularization")
+            epsilon = max(0, -min_eig_real, -min_eig_gen) + 1e-6
+            sigma_real += np.eye(sigma_real.shape[0]) * epsilon
+            sigma_gen += np.eye(sigma_gen.shape[0]) * epsilon
+        
+        # Calculate FID
+        diff = mu_real - mu_gen
+        
+        # Safely compute the square root of the product
+        try:
+            covmean = sqrtm(sigma_real.dot(sigma_gen))
+            
+            # Check for numerical issues
+            if np.iscomplexobj(covmean):
+                covmean = covmean.real
+                
+            fid = diff.dot(diff) + np.trace(sigma_real + sigma_gen - 2 * covmean)
+            return fid
+            
+        except ValueError as e:
+            print(f"Error computing matrix square root: {e}")
+            return 999.0
+            
+    except Exception as e:
+        print(f"Error computing FID: {e}")
+        return 999.0
 
 def compute_trajectory_divergence(trajectory1, trajectory2):
     """
