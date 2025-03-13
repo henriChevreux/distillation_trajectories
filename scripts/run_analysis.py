@@ -66,14 +66,14 @@ def parse_args():
                         help='Skip trajectory metrics analysis')
     analysis_group.add_argument('--skip_dimensionality', action='store_true',
                         help='Skip dimensionality reduction analysis')
-    analysis_group.add_argument('--skip_noise', action='store_true',
-                        help='Skip noise prediction analysis')
+    analysis_group.add_argument('--run_noise', action='store_true',
+                        help='Run noise prediction analysis (disabled by default)')
     analysis_group.add_argument('--skip_attention', action='store_true',
                         help='Skip attention map analysis')
     analysis_group.add_argument('--skip_3d', action='store_true',
                         help='Skip 3D visualization')
-    analysis_group.add_argument('--skip_fid', action='store_true',
-                        help='Skip FID calculation')
+    analysis_group.add_argument('--run_fid', action='store_true',
+                        help='Run FID calculation (disabled by default)')
     analysis_group.add_argument('--only_denoising', action='store_true',
                         help='Only run the denoising comparison, skip all other analyses')
     
@@ -472,7 +472,7 @@ def main():
             all_time_distances[size_factor] = time_distances
                 
             # Calculate FID scores
-            if not args.skip_fid:
+            if args.run_fid:
                 print("Calculating FID scores...")
                 fid_results = calculate_and_visualize_fid(
                     teacher_model, student_model, config, size_factor=size_factor
@@ -493,7 +493,7 @@ def main():
             else:
                 print("Skipping dimensionality reduction analysis.")
             
-            if not args.skip_noise:
+            if args.run_noise:
                 # 5. Noise prediction analysis
                 print("Analyzing noise prediction patterns...")
                 noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, size_factor=size_factor)
