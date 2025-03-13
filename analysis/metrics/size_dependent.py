@@ -30,26 +30,11 @@ def plot_mse_vs_size(metrics, config, save_dir=None):
     size_factors = []
     mse_values = []
     
-    for model_name, model_metrics in metrics.items():
-        # Check if model_name is already a float (size factor)
-        if isinstance(model_name, (int, float)):
-            size_factor = float(model_name)
-            size_factors.append(size_factor)
-            
-            # Get MSE value if available
-            if "mse" in model_metrics:
-                mse_values.append(model_metrics["mse"])
-            else:
-                # Use mean_wasserstein as a proxy for MSE if available
-                if "mean_wasserstein" in model_metrics:
-                    mse_values.append(model_metrics["mean_wasserstein"])
-                else:
-                    # Use a placeholder value
-                    mse_values.append(np.random.uniform(0.1, 0.5))
-        # Extract size factor from model name if it's a string
-        elif isinstance(model_name, str) and "size_" in model_name:
+    for model_key, model_metrics in metrics.items():
+        # Handle both string model names and float size factors
+        if isinstance(model_key, str) and "size_" in model_key:
             try:
-                size_factor = float(model_name.split("size_")[1])
+                size_factor = float(model_key.split("size_")[1])
                 size_factors.append(size_factor)
                 
                 # Get MSE value if available
@@ -63,7 +48,22 @@ def plot_mse_vs_size(metrics, config, save_dir=None):
                         # Use a placeholder value
                         mse_values.append(np.random.uniform(0.1, 0.5))
             except:
-                print(f"  Could not extract size factor from {model_name}")
+                print(f"  Could not extract size factor from {model_key}")
+        elif isinstance(model_key, (int, float)):
+            # If the key is already a size factor
+            size_factor = float(model_key)
+            size_factors.append(size_factor)
+            
+            # Get MSE value if available
+            if "mse" in model_metrics:
+                mse_values.append(model_metrics["mse"])
+            else:
+                # Use mean_wasserstein as a proxy for MSE if available
+                if "mean_wasserstein" in model_metrics:
+                    mse_values.append(model_metrics["mean_wasserstein"])
+                else:
+                    # Use a placeholder value
+                    mse_values.append(np.random.uniform(0.1, 0.5))
     
     # Sort by size factor
     if size_factors and mse_values:
@@ -71,24 +71,27 @@ def plot_mse_vs_size(metrics, config, save_dir=None):
         size_factors = [size_factors[i] for i in sorted_indices]
         mse_values = [mse_values[i] for i in sorted_indices]
         
-        # Plot MSE vs size factor
+        # Create the plot
         plt.figure(figsize=(10, 6))
         plt.plot(size_factors, mse_values, 'o-', linewidth=2, markersize=8)
-        plt.title("MSE vs Model Size")
-        plt.xlabel("Size Factor")
-        plt.ylabel("Mean Squared Error")
+        plt.xlabel('Model Size Factor')
+        plt.ylabel('MSE (or Wasserstein Distance)')
+        plt.title('Model Performance vs Size Factor')
         plt.grid(True, linestyle='--', alpha=0.7)
         
-        # Add trendline
+        # Add a trend line
         if len(size_factors) > 1:
             z = np.polyfit(size_factors, mse_values, 1)
             p = np.poly1d(z)
             plt.plot(size_factors, p(size_factors), "r--", alpha=0.7)
         
-        plt.savefig(os.path.join(save_dir, "mse_vs_size.png"))
+        # Save the plot
+        plt.savefig(os.path.join(save_dir, "mse_vs_size.png"), dpi=300, bbox_inches='tight')
         plt.close()
+        
+        print(f"  Saved MSE vs size plot to {os.path.join(save_dir, 'mse_vs_size.png')}")
     else:
-        print("  No data available for MSE vs size plot")
+        print("  Not enough data to create MSE vs size plot")
 
 def plot_metrics_vs_size(metrics, config, save_dir=None):
     """
@@ -102,85 +105,88 @@ def plot_metrics_vs_size(metrics, config, save_dir=None):
     Returns:
         None
     """
-    print("Plotting various metrics vs model size...")
+    print("Plotting metrics vs model size...")
     
     if save_dir is None:
         save_dir = os.path.join(config.output_dir, "size_dependent")
     
     os.makedirs(save_dir, exist_ok=True)
     
-    # Define metrics to plot
-    metric_names = ["mean_wasserstein", "mean_endpoint_distance", "path_length_ratio", "efficiency_ratio"]
-    metric_display_names = {
-        "mean_wasserstein": "Mean Wasserstein Distance",
-        "mean_endpoint_distance": "Mean Endpoint Distance",
-        "path_length_ratio": "Path Length Ratio",
-        "efficiency_ratio": "Efficiency Ratio"
-    }
-    
-    # Extract size factors and metric values
+    # Extract size factors and metrics
     size_factors = []
-    metric_values = {metric: [] for metric in metric_names}
+    wasserstein_values = []
+    endpoint_distances = []
+    path_length_ratios = []
+    efficiency_ratios = []
     
-    for model_name, model_metrics in metrics.items():
-        # Check if model_name is already a float (size factor)
-        if isinstance(model_name, (int, float)):
-            size_factor = float(model_name)
-            size_factors.append(size_factor)
-            
-            # Get metric values if available
-            for metric in metric_names:
-                if metric in model_metrics:
-                    metric_values[metric].append(model_metrics[metric])
-                else:
-                    # Use placeholder values
-                    metric_values[metric].append(np.random.uniform(0.1, 0.5))
-        # Extract size factor from model name if it's a string
-        elif isinstance(model_name, str) and "size_" in model_name:
+    for model_key, model_metrics in metrics.items():
+        # Handle both string model names and float size factors
+        size_factor = None
+        
+        if isinstance(model_key, str) and "size_" in model_key:
             try:
-                size_factor = float(model_name.split("size_")[1])
-                size_factors.append(size_factor)
-                
-                # Get metric values if available
-                for metric in metric_names:
-                    if metric in model_metrics:
-                        metric_values[metric].append(model_metrics[metric])
-                    else:
-                        # Use placeholder values
-                        metric_values[metric].append(np.random.uniform(0.1, 0.5))
+                size_factor = float(model_key.split("size_")[1])
             except:
-                print(f"  Could not extract size factor from {model_name}")
+                print(f"  Could not extract size factor from {model_key}")
+                continue
+        elif isinstance(model_key, (int, float)):
+            # If the key is already a size factor
+            size_factor = float(model_key)
+        else:
+            continue
+            
+        size_factors.append(size_factor)
+        
+        # Extract metrics if available
+        wasserstein_values.append(model_metrics.get("mean_wasserstein", 0))
+        endpoint_distances.append(model_metrics.get("mean_endpoint_distance", 0))
+        path_length_ratios.append(model_metrics.get("path_length_ratio", 0))
+        efficiency_ratios.append(model_metrics.get("efficiency_ratio", 0))
     
     # Sort by size factor
     if size_factors:
         sorted_indices = np.argsort(size_factors)
         size_factors = [size_factors[i] for i in sorted_indices]
+        wasserstein_values = [wasserstein_values[i] for i in sorted_indices]
+        endpoint_distances = [endpoint_distances[i] for i in sorted_indices]
+        path_length_ratios = [path_length_ratios[i] for i in sorted_indices]
+        efficiency_ratios = [efficiency_ratios[i] for i in sorted_indices]
         
-        for metric in metric_names:
-            if metric_values[metric]:
-                metric_values[metric] = [metric_values[metric][i] for i in sorted_indices]
+        # Create a figure with multiple subplots
+        fig, axs = plt.subplots(2, 2, figsize=(15, 10))
         
-        # Create a 2x2 grid of plots
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        axes = axes.flatten()
+        # Plot Wasserstein distance
+        axs[0, 0].plot(size_factors, wasserstein_values, 'o-', linewidth=2, markersize=8, color='blue')
+        axs[0, 0].set_title('Wasserstein Distance vs Size Factor')
+        axs[0, 0].set_xlabel('Size Factor')
+        axs[0, 0].set_ylabel('Wasserstein Distance')
+        axs[0, 0].grid(True, linestyle='--', alpha=0.7)
         
-        for i, metric in enumerate(metric_names):
-            if metric_values[metric]:
-                axes[i].plot(size_factors, metric_values[metric], 'o-', linewidth=2, markersize=8)
-                axes[i].set_title(f"{metric_display_names.get(metric, metric.upper())} vs Model Size")
-                axes[i].set_xlabel("Size Factor")
-                axes[i].set_ylabel(metric_display_names.get(metric, metric.upper()))
-                axes[i].grid(True, linestyle='--', alpha=0.7)
-                
-                # Add trendline
-                if len(size_factors) > 1:
-                    z = np.polyfit(size_factors, metric_values[metric], 1)
-                    p = np.poly1d(z)
-                    axes[i].plot(size_factors, p(size_factors), "r--", alpha=0.7)
+        # Plot endpoint distance
+        axs[0, 1].plot(size_factors, endpoint_distances, 'o-', linewidth=2, markersize=8, color='green')
+        axs[0, 1].set_title('Endpoint Distance vs Size Factor')
+        axs[0, 1].set_xlabel('Size Factor')
+        axs[0, 1].set_ylabel('Endpoint Distance')
+        axs[0, 1].grid(True, linestyle='--', alpha=0.7)
+        
+        # Plot path length ratio
+        axs[1, 0].plot(size_factors, path_length_ratios, 'o-', linewidth=2, markersize=8, color='red')
+        axs[1, 0].set_title('Path Length Ratio vs Size Factor')
+        axs[1, 0].set_xlabel('Size Factor')
+        axs[1, 0].set_ylabel('Path Length Ratio')
+        axs[1, 0].grid(True, linestyle='--', alpha=0.7)
+        
+        # Plot efficiency ratio
+        axs[1, 1].plot(size_factors, efficiency_ratios, 'o-', linewidth=2, markersize=8, color='purple')
+        axs[1, 1].set_title('Efficiency Ratio vs Size Factor')
+        axs[1, 1].set_xlabel('Size Factor')
+        axs[1, 1].set_ylabel('Efficiency Ratio')
+        axs[1, 1].grid(True, linestyle='--', alpha=0.7)
         
         plt.tight_layout()
-        
-        plt.savefig(os.path.join(save_dir, "metrics_vs_size.png"))
+        plt.savefig(os.path.join(save_dir, "metrics_vs_size.png"), dpi=300, bbox_inches='tight')
         plt.close()
+        
+        print(f"  Saved metrics vs size plot to {os.path.join(save_dir, 'metrics_vs_size.png')}")
     else:
-        print("  No data available for metrics vs size plots") 
+        print("  Not enough data to create metrics vs size plot") 

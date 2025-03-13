@@ -489,14 +489,14 @@ def main():
                     size_factor=size_factor, 
                     indices=list(range(min(5, args.num_samples)))  # Use at most 5 trajectories
                     )
-                dimensionality_reduction_analysis(teacher_subset, student_subset, config, size_factor=size_factor)
+                dimensionality_reduction_analysis(teacher_subset, student_subset, config, suffix=f"_size_{size_factor}")
             else:
                 print("Skipping dimensionality reduction analysis.")
             
             if not args.skip_noise:
                 # 5. Noise prediction analysis
                 print("Analyzing noise prediction patterns...")
-                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, size_factor=size_factor)
+                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, suffix=f"_size_{size_factor}")
             else:
                 print("Skipping noise prediction analysis.")
             
@@ -509,8 +509,9 @@ def main():
                 test_samples, _ = next(iter(test_loader))
                 test_samples = test_samples.to(device)
                 
-                # Call the attention map analysis with the current student model
-                attention_metrics = analyze_attention_maps(teacher_model, student_model, config, size_factor=size_factor)
+                # Create a dictionary with just this student model for the analysis
+                current_student_models = {size_factor: student_model}
+                attention_metrics = analyze_attention_maps(teacher_model, current_student_models, test_samples, config)
             else:
                 print("Skipping attention map analysis.")
             
@@ -522,7 +523,7 @@ def main():
                     size_factor=size_factor, 
                     indices=[0]  # Just use the first trajectory
                     )
-                generate_latent_space_visualization(teacher_viz, student_viz, config, size_factor=size_factor)
+                generate_latent_space_visualization(teacher_viz, student_viz, config, suffix=f"_size_{size_factor}")
             else:
                 print("Skipping 3D latent space visualization.")
             

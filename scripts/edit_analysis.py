@@ -63,7 +63,7 @@ def main():
     print(f"Using {device} device")
     
     # Load teacher model
-    teacher_model_path = args.teacher_model or os.path.join('models/', 'model_epoch_1.pt')
+    teacher_model_path = args.teacher_model or os.path.join('models/', 'model_epoch_10.pt')
     print(f"Loading teacher model from {teacher_model_path}...")
     teacher_model = SimpleUNet(config).to(device)
     teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
