@@ -1008,11 +1008,11 @@ def run_prompt_editing_analysis(teacher_model, student_model,
     
     # FID
     if args.enable_fid:
-    teacher_edited_images = [result["edited_image"] for result in teacher_results]
-    student_edited_images = [result["edited_image"] for result in student_results]
-    
-    fid_score = compute_fid(teacher_edited_images, student_edited_images, device)
-    metrics["fid"] = fid_score
+        teacher_edited_images = [result["edited_image"] for result in teacher_results]
+        student_edited_images = [result["edited_image"] for result in student_results]
+        
+        fid_score = compute_fid(teacher_edited_images, student_edited_images, device)
+        metrics["fid"] = fid_score
     
     # Trajectory divergence
     trajectory_divergences = []
@@ -1223,11 +1223,11 @@ def run_inpainting_analysis(teacher_model, student_model,
     
     # FID
     if args.enable_fid:
-    teacher_inpainted_images = [result["inpainted_image"] for result in teacher_results]
-    student_inpainted_images = [result["inpainted_image"] for result in student_results]
-    
-    fid_score = compute_fid(teacher_inpainted_images, student_inpainted_images, device)
-    metrics["fid"] = fid_score
+        teacher_inpainted_images = [result["inpainted_image"] for result in teacher_results]
+        student_inpainted_images = [result["inpainted_image"] for result in student_results]
+        
+        fid_score = compute_fid(teacher_inpainted_images, student_inpainted_images, device)
+        metrics["fid"] = fid_score
     
     # Trajectory divergence
     trajectory_divergences = []
@@ -1471,12 +1471,12 @@ def run_latent_manipulation_analysis(teacher_model, student_model,
             
             # FID
             if args.enable_fid:
-            fid_score = compute_fid(
-                teacher_result["manipulated_images"], 
-                student_result["manipulated_images"], 
-                device
-            )
-            metrics["fid"] = fid_score
+                fid_score = compute_fid(
+                    teacher_result["manipulated_images"], 
+                    student_result["manipulated_images"], 
+                    device
+                )
+                metrics["fid"] = fid_score
             
             # Trajectory divergence
             if "trajectories" in teacher_result and "trajectories" in student_result:
