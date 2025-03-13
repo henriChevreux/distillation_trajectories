@@ -231,7 +231,7 @@ def analyze_attention_maps(teacher_model, student_model, config, output_dir=None
     if output_dir is None:
         output_dir = os.path.join(config.analysis_dir, "attention_maps", f"size_{size_factor}")
     
-    os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
     
     print(f"Analyzing attention maps for size factor {size_factor}...")
     

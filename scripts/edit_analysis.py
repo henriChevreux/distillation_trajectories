@@ -27,6 +27,7 @@ from utils.trajectory_manager import TrajectoryManager
 from editing.prompt_editing import apply_prompt_editing, visualize_prompt_editing
 from editing.masked_inpainting import apply_masked_inpainting, visualize_inpainting, create_random_mask, generate_image
 from editing.latent_manipulation import apply_latent_manipulation, visualize_latent_manipulation
+from editing.classifier_free_guidance import apply_classifier_free_guidance, visualize_cfg_editing, visualize_guidance_scale_comparison
 
 # Import evaluation metrics
 from evaluation.metrics import compute_lpips, compute_fid, compute_trajectory_divergence, visualize_metrics
@@ -811,11 +812,12 @@ def parse_args():
     parser.add_argument("--student_model", type=str, default=None, help="Path to student model")
     parser.add_argument("--size_factor", type=float, default=0.5, help="Size factor of student model")
     parser.add_argument("--output_dir", type=str, default="results/editing", help="Output directory")
-    parser.add_argument("--edit_mode", type=str, choices=["prompt", "inpainting", "latent", "all"], 
+    parser.add_argument("--edit_mode", type=str, choices=["prompt", "inpainting", "latent", "cfg", "all"], 
                         default="all", help="Editing mode to analyze")
     parser.add_argument("--num_samples", type=int, default=5, help="Number of samples to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--enable_fid", action="store_true", help="Enable FID calculations (disabled by default)")
+    parser.add_argument("--guidance_scale", type=float, default=3.0, help="Guidance scale for classifier-free guidance")
     return parser.parse_args()
 
 def main():
@@ -914,6 +916,15 @@ def main():
         )
         results["latent"] = latent_results
     
+    if args.edit_mode in ["cfg", "all"]:
+        print("\nRunning classifier-free guidance analysis...")
+        cfg_results = run_classifier_free_guidance_analysis(
+            teacher_model, student_model, 
+            teacher_params, student_params,
+            config, args, device
+        )
+        results["cfg"] = cfg_results
+    
     # Generate summary report
     generate_summary_report(results, args.output_dir, args.size_factor)
     
@@ -997,11 +1008,11 @@ def run_prompt_editing_analysis(teacher_model, student_model,
     
     # FID
     if args.enable_fid:
-        teacher_edited_images = [result["edited_image"] for result in teacher_results]
-        student_edited_images = [result["edited_image"] for result in student_results]
-        
-        fid_score = compute_fid(teacher_edited_images, student_edited_images, device)
-        metrics["fid"] = fid_score
+    teacher_edited_images = [result["edited_image"] for result in teacher_results]
+    student_edited_images = [result["edited_image"] for result in student_results]
+    
+    fid_score = compute_fid(teacher_edited_images, student_edited_images, device)
+    metrics["fid"] = fid_score
     
     # Trajectory divergence
     trajectory_divergences = []
@@ -1212,11 +1223,11 @@ def run_inpainting_analysis(teacher_model, student_model,
     
     # FID
     if args.enable_fid:
-        teacher_inpainted_images = [result["inpainted_image"] for result in teacher_results]
-        student_inpainted_images = [result["inpainted_image"] for result in student_results]
-        
-        fid_score = compute_fid(teacher_inpainted_images, student_inpainted_images, device)
-        metrics["fid"] = fid_score
+    teacher_inpainted_images = [result["inpainted_image"] for result in teacher_results]
+    student_inpainted_images = [result["inpainted_image"] for result in student_results]
+    
+    fid_score = compute_fid(teacher_inpainted_images, student_inpainted_images, device)
+    metrics["fid"] = fid_score
     
     # Trajectory divergence
     trajectory_divergences = []
@@ -1460,12 +1471,12 @@ def run_latent_manipulation_analysis(teacher_model, student_model,
             
             # FID
             if args.enable_fid:
-                fid_score = compute_fid(
-                    teacher_result["manipulated_images"], 
-                    student_result["manipulated_images"], 
-                    device
-                )
-                metrics["fid"] = fid_score
+            fid_score = compute_fid(
+                teacher_result["manipulated_images"], 
+                student_result["manipulated_images"], 
+                device
+            )
+            metrics["fid"] = fid_score
             
             # Trajectory divergence
             if "trajectories" in teacher_result and "trajectories" in student_result:
@@ -1597,6 +1608,241 @@ def run_latent_manipulation_analysis(teacher_model, student_model,
         "teacher_results": teacher_results,
         "student_results": student_results,
         "metrics": all_metrics,
+        "status": "completed"
+    }
+
+def run_classifier_free_guidance_analysis(teacher_model, student_model, 
+                                         teacher_params, student_params,
+                                         config, args, device):
+    """Run classifier-free guidance analysis"""
+    print("\nRunning classifier-free guidance analysis...")
+    
+    # Create output directory for CFG
+    cfg_dir = os.path.join(args.output_dir, "classifier_free_guidance")
+    os.makedirs(cfg_dir, exist_ok=True)
+    
+    # Define prompts for guidance
+    prompts = [
+        "A beautiful landscape",
+        "A portrait of a person",
+        "A still life with fruits",
+        "An abstract painting",
+        "A cityscape at night"
+    ]
+    
+    # Run CFG for teacher model
+    print("Running classifier-free guidance for teacher model...")
+    teacher_results = []
+    
+    for prompt in prompts[:args.num_samples]:
+        result = apply_classifier_free_guidance(
+            teacher_model, 
+            teacher_params, 
+            prompt, 
+            config, 
+            device,
+            guidance_scale=args.guidance_scale
+        )
+        teacher_results.append(result)
+        
+        # Visualize results
+        teacher_cfg_dir = os.path.join(cfg_dir, "teacher", f"prompt_{prompt}")
+        os.makedirs(teacher_cfg_dir, exist_ok=True)
+        visualize_cfg_editing(result, teacher_cfg_dir)
+    
+    # Run CFG for student model
+    print("Running classifier-free guidance for student model...")
+    student_results = []
+    
+    for prompt in prompts[:args.num_samples]:
+        result = apply_classifier_free_guidance(
+            student_model, 
+            student_params, 
+            prompt, 
+            config, 
+            device,
+            guidance_scale=args.guidance_scale
+        )
+        student_results.append(result)
+        
+        # Visualize results
+        student_cfg_dir = os.path.join(cfg_dir, "student", f"prompt_{prompt}")
+        os.makedirs(student_cfg_dir, exist_ok=True)
+        visualize_cfg_editing(result, student_cfg_dir, args.size_factor)
+    
+    # Compute metrics
+    metrics = {}
+    
+    # LPIPS
+    lpips_distances = []
+    for teacher_result, student_result in zip(teacher_results, student_results):
+        # Compare guided images
+        lpips_distance = compute_lpips(
+            teacher_result["guided_image"], 
+            student_result["guided_image"], 
+            device
+        )
+        lpips_distances.append(lpips_distance)
+    
+    metrics["lpips"] = lpips_distances
+    
+    # FID
+    if args.enable_fid:
+        teacher_guided_images = [result["guided_image"] for result in teacher_results]
+        student_guided_images = [result["guided_image"] for result in student_results]
+        
+        fid_score = compute_fid(teacher_guided_images, student_guided_images, device)
+        metrics["fid"] = fid_score
+    
+    # Trajectory divergence
+    trajectory_divergences = []
+    for teacher_result, student_result in zip(teacher_results, student_results):
+        if "guided_trajectory" in teacher_result and "guided_trajectory" in student_result:
+            divergence = compute_trajectory_divergence(
+                teacher_result["guided_trajectory"],
+                student_result["guided_trajectory"]
+            )
+            trajectory_divergences.append(divergence)
+    
+    if trajectory_divergences:
+        # Compute average metrics across all trajectories
+        avg_divergence = {
+            "distances": np.mean([d["distances"] for d in trajectory_divergences], axis=0).tolist(),
+            "similarities": np.mean([d["similarities"] for d in trajectory_divergences], axis=0).tolist(),
+            "avg_distance": np.mean([d["avg_distance"] for d in trajectory_divergences]),
+            "max_distance": np.mean([d["max_distance"] for d in trajectory_divergences]),
+            "avg_similarity": np.mean([d["avg_similarity"] for d in trajectory_divergences]),
+            "min_similarity": np.mean([d["min_similarity"] for d in trajectory_divergences]),
+            "length_ratio": np.mean([d["length_ratio"] for d in trajectory_divergences])
+        }
+        metrics["trajectory_divergence"] = avg_divergence
+    
+    # Visualize metrics
+    metrics_dir = os.path.join(cfg_dir, "metrics")
+    os.makedirs(metrics_dir, exist_ok=True)
+    visualize_metrics(metrics, metrics_dir, args.size_factor)
+    
+    # Add PCA visualization of trajectories
+    if trajectory_divergences:
+        # Create PCA visualization directory
+        pca_dir = os.path.join(cfg_dir, "pca_visualizations")
+        os.makedirs(pca_dir, exist_ok=True)
+        
+        # Create comparison directory
+        comparison_dir = os.path.join(cfg_dir, "trajectory_comparisons")
+        os.makedirs(comparison_dir, exist_ok=True)
+        
+        # For each prompt, create a PCA visualization
+        for i, (teacher_result, student_result) in enumerate(zip(teacher_results, student_results)):
+            if "guided_trajectory" in teacher_result and "guided_trajectory" in student_result:
+                # Get trajectories
+                teacher_guided_trajectory = teacher_result["guided_trajectory"]
+                student_guided_trajectory = student_result["guided_trajectory"]
+                
+                # For CFG, we need to compare with unguided trajectories
+                teacher_unguided_trajectory = teacher_result["unguided_trajectory"]
+                student_unguided_trajectory = student_result["unguided_trajectory"]
+                
+                # For CFG, the edit point is at the beginning (guidance is applied throughout)
+                edit_points = {
+                    "teacher": [0],  # First point in the trajectory
+                    "student": [0]   # First point in the trajectory
+                }
+                
+                # Get prompt information for labeling
+                prompt = prompts[i]
+                
+                # Create PCA visualization
+                visualize_trajectory_pca(
+                    [teacher_guided_trajectory],
+                    [student_guided_trajectory],
+                    "cfg",
+                    edit_points,
+                    os.path.join(pca_dir, f"prompt_{prompt}"),
+                    args.size_factor,
+                    prompt,
+                    args.guidance_scale
+                )
+                
+                # Create comparison visualization
+                visualize_trajectory_comparison(
+                    teacher_unguided_trajectory,
+                    teacher_guided_trajectory,
+                    student_unguided_trajectory,
+                    student_guided_trajectory,
+                    "cfg",
+                    os.path.join(comparison_dir, f"prompt_{prompt}"),
+                    args.size_factor,
+                    prompt,
+                    args.guidance_scale
+                )
+        
+        # Also create a combined visualization with all prompts
+        all_teacher_guided_trajectories = [result["guided_trajectory"] for result in teacher_results if "guided_trajectory" in result]
+        all_student_guided_trajectories = [result["guided_trajectory"] for result in student_results if "guided_trajectory" in result]
+        
+        if all_teacher_guided_trajectories and all_student_guided_trajectories:
+            # Create combined PCA visualization
+            visualize_trajectory_pca(
+                all_teacher_guided_trajectories,
+                all_student_guided_trajectories,
+                "cfg",
+                {"teacher": [0], "student": [0]},
+                os.path.join(pca_dir, "combined"),
+                args.size_factor
+            )
+            
+            # For combined comparison, use the first trajectory from each set
+            if len(teacher_results) > 0 and len(student_results) > 0:
+                visualize_trajectory_comparison(
+                    teacher_results[0]["unguided_trajectory"],
+                    teacher_results[0]["guided_trajectory"],
+                    student_results[0]["unguided_trajectory"],
+                    student_results[0]["guided_trajectory"],
+                    "cfg",
+                    os.path.join(comparison_dir, "combined"),
+                    args.size_factor,
+                    prompts[0],
+                    args.guidance_scale
+                )
+    
+    # Visualize guidance scale comparison
+    print("Generating guidance scale comparison...")
+    guidance_scales = [1.0, 2.0, 5.0, 7.5, 10.0]
+    
+    # Teacher model
+    teacher_scale_dir = os.path.join(cfg_dir, "teacher", "guidance_scale_comparison")
+    os.makedirs(teacher_scale_dir, exist_ok=True)
+    
+    visualize_guidance_scale_comparison(
+        teacher_model,
+        teacher_params,
+        prompts[0] if prompts else "A beautiful landscape",
+        config,
+        device,
+        teacher_scale_dir,
+        guidance_scales
+    )
+    
+    # Student model
+    student_scale_dir = os.path.join(cfg_dir, "student", "guidance_scale_comparison")
+    os.makedirs(student_scale_dir, exist_ok=True)
+    
+    visualize_guidance_scale_comparison(
+        student_model,
+        student_params,
+        prompts[0] if prompts else "A beautiful landscape",
+        config,
+        device,
+        student_scale_dir,
+        guidance_scales,
+        args.size_factor
+    )
+    
+    return {
+        "teacher_results": teacher_results,
+        "student_results": student_results,
+        "metrics": metrics,
         "status": "completed"
     }
 

@@ -212,7 +212,7 @@ def analyze_noise_prediction(teacher_model, student_model, config, output_dir=No
     if output_dir is None:
         output_dir = os.path.join(config.analysis_dir, "noise_prediction", f"size_{size_factor}")
     
-    os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
     
     print(f"Analyzing noise prediction for size factor {size_factor}...")
     

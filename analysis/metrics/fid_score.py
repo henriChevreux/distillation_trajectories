@@ -110,7 +110,7 @@ def calculate_and_visualize_fid(teacher_model, student_model, config, output_dir
     if output_dir is None:
         output_dir = os.path.join(config.analysis_dir, "fid", f"size_{size_factor}")
     
-    os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
     
     print(f"Calculating FID scores for size factor {size_factor}...")
     
