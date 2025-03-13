@@ -169,9 +169,16 @@ def main():
     config = setup_config(args)
     
     # Determine device
-    device_name = "CUDA" if torch.cuda.is_available() else "MPS" if torch.backends.mps.is_available() else "CPU"
+    device_name = "CUDA (GPU)" if torch.cuda.is_available() else "MPS (Apple Silicon)" if torch.backends.mps.is_available() else "CPU"
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Running analysis using {device_name} device")
+    
+    print("\n" + "="*80)
+    print(f"DEVICE INFORMATION")
+    print("="*80)
+    print(f"Using {device_name} device")
+    if device_name == "CUDA (GPU)":
+        print(f"CUDA Device: {torch.cuda.get_device_name()}")
+    print("="*80 + "\n")
     
     # Print analysis configuration
     print("\n" + "="*80)
@@ -298,7 +305,18 @@ def main():
         teacher_model = SimpleUNet(config).to(device)
         
         if os.path.exists(teacher_model_path):
-            teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
+            try:
+                # First try loading with map_location
+                state_dict = torch.load(teacher_model_path, map_location=device)
+                teacher_model.load_state_dict(state_dict)
+            except RuntimeError as e:
+                if "PytorchStreamReader failed reading zip archive" in str(e):
+                    # Try alternative loading method for cross-platform compatibility
+                    state_dict = torch.load(teacher_model_path, map_location='cpu')
+                    state_dict = {k: v.to(device) for k, v in state_dict.items()}
+                    teacher_model.load_state_dict(state_dict)
+                else:
+                    raise e
             print(f"Loaded teacher model from {teacher_model_path}")
         else:
             print(f"ERROR: Teacher model not found at {teacher_model_path}. Please run training first.")
@@ -333,7 +351,18 @@ def main():
                 student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
                 
                 if os.path.exists(path):
-                    student_model.load_state_dict(torch.load(path, map_location=device))
+                    try:
+                        # First try loading with map_location
+                        state_dict = torch.load(path, map_location=device)
+                        student_model.load_state_dict(state_dict)
+                    except RuntimeError as e:
+                        if "PytorchStreamReader failed reading zip archive" in str(e):
+                            # Try alternative loading method for cross-platform compatibility
+                            state_dict = torch.load(path, map_location='cpu')
+                            state_dict = {k: v.to(device) for k, v in state_dict.items()}
+                            student_model.load_state_dict(state_dict)
+                        else:
+                            raise e
                     print(f"Loaded student model from {path}")
                     student_model.eval()
                     student_models[float(size_factor)] = student_model

@@ -49,7 +49,7 @@ pip-selfcheck.json
 .settings/
 
 # Project specific
-models/
+output/models/
 results/
 output/analysis/
 analysis-old/
