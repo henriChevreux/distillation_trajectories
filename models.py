@@ -252,4 +252,4 @@ class StudentUNet(nn.Module):
             x = block(x, time_emb)
         
         # Final layer
-        return self.final(x) 
+        return self.final(x) # Test comment
