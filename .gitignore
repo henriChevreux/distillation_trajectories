@@ -96,3 +96,6 @@ htmlcov/
 
 # Diffusers cache
 .diffusers/ 
+
+*.gif
+*.txt
