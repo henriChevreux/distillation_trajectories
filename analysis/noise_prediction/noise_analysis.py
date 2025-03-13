@@ -51,6 +51,16 @@ def calculate_noise_metrics(teacher_noise, student_noise):
     Returns:
         Dictionary of metrics
     """
+    # Resize student noise to match teacher noise if sizes differ
+    if teacher_noise.shape != student_noise.shape:
+        print(f"  Resizing student noise from {student_noise.shape} to {teacher_noise.shape}")
+        student_noise = torch.nn.functional.interpolate(
+            student_noise, 
+            size=(teacher_noise.shape[2], teacher_noise.shape[3]),
+            mode='bilinear', 
+            align_corners=True
+        )
+    
     # Calculate MSE
     mse = torch.mean((teacher_noise - student_noise) ** 2).item()
     
@@ -184,7 +194,7 @@ def plot_noise_metrics_by_timestep(metrics_by_timestep, output_dir, size_factor)
     plt.savefig(os.path.join(output_dir, f'noise_metrics_by_timestep_size_{size_factor}.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def analyze_noise_prediction(teacher_model, student_model, config, output_dir=None, size_factor=None):
+def analyze_noise_prediction(teacher_model, student_model, config, output_dir=None, size_factor=None, fixed_samples=None):
     """
     Analyze noise prediction accuracy of models
     
@@ -194,6 +204,7 @@ def analyze_noise_prediction(teacher_model, student_model, config, output_dir=No
         config: Configuration object
         output_dir: Directory to save visualizations
         size_factor: Size factor of the student model for labeling
+        fixed_samples: Fixed samples to use for analysis (for consistent comparison)
         
     Returns:
         Dictionary of analysis results
@@ -212,13 +223,15 @@ def analyze_noise_prediction(teacher_model, student_model, config, output_dir=No
     teacher_model.eval()
     student_model.eval()
     
-    # Get test dataset
-    test_dataset = config.get_test_dataset()
-    test_loader = DataLoader(test_dataset, batch_size=10, shuffle=True)
-    
-    # Get a batch of images
-    images, _ = next(iter(test_loader))
-    images = images.to(device)
+    # Get test dataset or use fixed samples
+    if fixed_samples is not None:
+        print(f"Using {len(fixed_samples)} fixed samples for consistent comparison")
+        images = fixed_samples.to(device)
+    else:
+        test_dataset = config.get_test_dataset()
+        test_loader = DataLoader(test_dataset, batch_size=10, shuffle=True)
+        images, _ = next(iter(test_loader))
+        images = images.to(device)
     
     # Number of timesteps to analyze
     n_timesteps = 10
@@ -244,9 +257,9 @@ def analyze_noise_prediction(teacher_model, student_model, config, output_dir=No
             alpha_bar_t *= alpha_i
         
         # Convert to tensors
-        beta_t = torch.tensor(beta_t, device=device)
-        alpha_t = torch.tensor(alpha_t, device=device)
-        alpha_bar_t = torch.tensor(alpha_bar_t, device=device)
+        beta_t = torch.as_tensor(beta_t, device=device)
+        alpha_t = torch.as_tensor(alpha_t, device=device)
+        alpha_bar_t = torch.as_tensor(alpha_bar_t, device=device)
         
         # Generate noise
         noise = torch.randn_like(images)

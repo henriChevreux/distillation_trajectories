@@ -10,6 +10,7 @@ import torch
 import sys
 import os
 from torch.utils.data import DataLoader
+import numpy as np
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -308,6 +309,17 @@ def main():
         # Set teacher model to evaluation mode
         teacher_model.eval()
         
+        # Generate fixed test samples for consistent comparison across all models
+        print("\nGenerating fixed test samples for consistent comparison...")
+        test_dataset = config.get_test_dataset()
+        # Set a fixed seed for reproducibility
+        torch.manual_seed(42)
+        np.random.seed(42)
+        test_loader = DataLoader(test_dataset, batch_size=args.num_samples, shuffle=True)
+        fixed_test_samples, _ = next(iter(test_loader))
+        fixed_test_samples = fixed_test_samples.to(device)
+        print(f"Generated {len(fixed_test_samples)} fixed test samples for consistent evaluation")
+        
         # Handle student models - either a single model or multiple models with different size factors
         student_models = {}
         
@@ -398,17 +410,12 @@ def main():
         # If only running denoising comparison, skip other analyses
         if args.only_denoising:
             print("\nRunning only denoising comparison...")
-            # Get some test samples
-            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
-            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
-            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
-            test_samples = test_samples.to(device)
-            
             # Create the comparison plot
             create_denoising_comparison_plot(
                 {**{"teacher": teacher_model}, **student_models},
                 config,
-                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison"),
+                fixed_samples=fixed_test_samples[:args.num_denoising_samples]  # Use a subset of the fixed samples
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
             return
@@ -429,7 +436,8 @@ def main():
             # 1. Generate multiple trajectories
             print("Generating trajectories and storing on disk...")
             trajectory_manager = generate_trajectories_with_disk_storage(
-                teacher_model, student_model, config, size_factor, num_samples=args.num_samples
+                teacher_model, student_model, config, size_factor, num_samples=args.num_samples,
+                fixed_samples=fixed_test_samples  # Pass the fixed samples
             )
             
             # Run only the selected analysis modules
@@ -475,7 +483,8 @@ def main():
             if args.run_fid:
                 print("Calculating FID scores...")
                 fid_results = calculate_and_visualize_fid(
-                    teacher_model, student_model, config, size_factor=size_factor
+                    teacher_model, student_model, config, size_factor=size_factor,
+                    fixed_samples=fixed_test_samples  # Pass the fixed samples
                 )
                 all_fid_results[size_factor] = fid_results
             else:
@@ -496,22 +505,21 @@ def main():
             if args.run_noise:
                 # 5. Noise prediction analysis
                 print("Analyzing noise prediction patterns...")
-                noise_metrics = analyze_noise_prediction(teacher_model, student_model, config, size_factor=size_factor)
+                noise_metrics = analyze_noise_prediction(
+                    teacher_model, student_model, config, size_factor=size_factor,
+                    fixed_samples=fixed_test_samples  # Pass the fixed samples
+                )
             else:
                 print("Skipping noise prediction analysis.")
             
             if not args.skip_attention:
                 # 6. Attention map analysis
                 print("Analyzing attention maps...")
-                # Get test samples for attention analysis
-                test_dataset = config.get_test_dataset()
-                test_loader = DataLoader(test_dataset, batch_size=args.num_samples, shuffle=True)
-                test_samples, _ = next(iter(test_loader))
-                test_samples = test_samples.to(device)
-                
-                # Create a dictionary with just this student model for the analysis
-                current_student_models = {size_factor: student_model}
-                attention_metrics = analyze_attention_maps(teacher_model, student_model, config, size_factor=size_factor)
+                # Use the fixed test samples for attention analysis
+                attention_metrics = analyze_attention_maps(
+                    teacher_model, student_model, config, size_factor=size_factor,
+                    fixed_samples=fixed_test_samples  # Pass the fixed samples
+                )
             else:
                 print("Skipping attention map analysis.")
             
@@ -554,17 +562,12 @@ def main():
         # After loading all models and before running other analyses, add:
         if len(student_models) > 0:
             print("\nGenerating denoising comparison visualization...")
-            # Get some test samples
-            test_dataset = config.get_test_dataset()  # Returns CIFAR10 or MNIST dataset
-            test_loader = DataLoader(test_dataset, batch_size=args.num_denoising_samples, shuffle=True)
-            test_samples, _ = next(iter(test_loader))  # Unpack directly as we know it returns (data, target)
-            test_samples = test_samples.to(device)
-            
             # Create the comparison plot
             create_denoising_comparison_plot(
                 {**{"teacher": teacher_model}, **student_models},
                 config,
-                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison"),
+                fixed_samples=fixed_test_samples[:args.num_denoising_samples]  # Use a subset of the fixed samples
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
         

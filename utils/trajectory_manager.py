@@ -10,7 +10,7 @@ class TrajectoryManager:
     """
     Class to manage diffusion trajectories for analysis
     """
-    def __init__(self, teacher_model, student_model, config, size_factor=1.0):
+    def __init__(self, teacher_model, student_model, config, size_factor=1.0, fixed_samples=None):
         """
         Initialize the trajectory manager
         
@@ -19,11 +19,13 @@ class TrajectoryManager:
             student_model: The student diffusion model
             config: Configuration object
             size_factor: Size factor of the student model
+            fixed_samples: Fixed samples to use for trajectory generation (for consistent comparison)
         """
         self.teacher_model = teacher_model
         self.student_model = student_model
         self.config = config
         self.size_factor = size_factor
+        self.fixed_samples = fixed_samples
         
         # Create trajectory directory if it doesn't exist
         os.makedirs(config.trajectory_dir, exist_ok=True)
@@ -169,26 +171,146 @@ class TrajectoryManager:
         """
         file_paths = []
         
-        for i in tqdm(range(num_samples), desc="Generating trajectories"):
-            # Generate trajectory
-            try:
-                teacher_traj, student_traj = self.generate_trajectory(seed=i)
-            except Exception as e:
-                print(f"Error generating trajectory {i}: {e}")
-                continue
+        # If fixed samples are provided, use them instead of generating random ones
+        if self.fixed_samples is not None and num_samples <= len(self.fixed_samples):
+            print(f"Using {num_samples} fixed samples for consistent comparison")
+            samples_to_use = self.fixed_samples[:num_samples]
             
-            # Save trajectory
-            file_path = os.path.join(
-                self.config.trajectory_dir, 
-                f"trajectory_size_{self.size_factor}_sample_{i}.pkl"
-            )
-            
-            with open(file_path, 'wb') as f:
-                pickle.dump((teacher_traj, student_traj), f)
-            
-            file_paths.append(file_path)
+            for i, sample in enumerate(tqdm(samples_to_use, desc="Generating trajectories from fixed samples")):
+                # Generate trajectory using the fixed sample
+                try:
+                    teacher_traj, student_traj = self.generate_trajectory_from_sample(sample, i)
+                except Exception as e:
+                    print(f"Error generating trajectory {i} from fixed sample: {e}")
+                    continue
+                
+                # Save trajectory
+                file_path = os.path.join(
+                    self.config.trajectory_dir, 
+                    f"trajectory_size_{self.size_factor}_sample_{i}.pkl"
+                )
+                
+                with open(file_path, 'wb') as f:
+                    pickle.dump((teacher_traj, student_traj), f)
+                
+                file_paths.append(file_path)
+        else:
+            # Use random seeds if no fixed samples or not enough fixed samples
+            for i in tqdm(range(num_samples), desc="Generating trajectories"):
+                # Generate trajectory
+                try:
+                    teacher_traj, student_traj = self.generate_trajectory(seed=i)
+                except Exception as e:
+                    print(f"Error generating trajectory {i}: {e}")
+                    continue
+                
+                # Save trajectory
+                file_path = os.path.join(
+                    self.config.trajectory_dir, 
+                    f"trajectory_size_{self.size_factor}_sample_{i}.pkl"
+                )
+                
+                with open(file_path, 'wb') as f:
+                    pickle.dump((teacher_traj, student_traj), f)
+                
+                file_paths.append(file_path)
         
         return file_paths
+    
+    def generate_trajectory_from_sample(self, sample, seed=None):
+        """
+        Generate a trajectory pair starting from a fixed sample
+        
+        Args:
+            sample: Fixed sample to start from
+            seed: Random seed for reproducibility
+            
+        Returns:
+            teacher_trajectory: List of (image, timestep) pairs for teacher
+            student_trajectory: List of (image, timestep) pairs for student
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+        
+        # Set models to eval mode
+        self.teacher_model.eval()
+        self.student_model.eval()
+        
+        # Use the provided sample as the starting point
+        x_teacher = sample.clone().to(self.device)
+        
+        # Generate teacher trajectory
+        teacher_trajectory = []
+        with torch.no_grad():
+            for t in range(self.config.teacher_steps - 1, -1, -1):
+                t_tensor = torch.tensor([t], device=self.device)
+                
+                # Store current state
+                teacher_trajectory.append((x_teacher.clone(), t))
+                
+                # Predict noise
+                noise_pred = self.teacher_model(x_teacher, t_tensor)
+                
+                # Update x
+                if t > 0:
+                    # Sample noise for the next step
+                    noise = torch.randn_like(x_teacher)
+                    x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
+        
+        # Reset to the same starting sample for student
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+        
+        # Check if student model has a different image size
+        student_image_size = self.config.image_size
+        if hasattr(self.student_model, 'image_size'):
+            student_image_size = self.student_model.image_size
+        
+        # Resize the sample if needed for the student model
+        if student_image_size != self.config.image_size:
+            x_student = torch.nn.functional.interpolate(
+                sample.clone(),
+                size=(student_image_size, student_image_size),
+                mode='bilinear',
+                align_corners=True
+            ).to(self.device)
+        else:
+            x_student = sample.clone().to(self.device)
+        
+        # Generate student trajectory
+        student_trajectory = []
+        with torch.no_grad():
+            for t in range(self.config.student_steps - 1, -1, -1):
+                t_tensor = torch.tensor([t], device=self.device)
+                
+                # Store current state
+                student_trajectory.append((x_student.clone(), t))
+                
+                # Predict noise
+                noise_pred = self.student_model(x_student, t_tensor)
+                
+                # Update x
+                if t > 0:
+                    # Sample noise for the next step
+                    noise = torch.randn_like(x_student)
+                    x_student = self._update_x(x_student, noise_pred, t, noise)
+        
+        # Resize student trajectory images to match teacher size if needed
+        if student_image_size != self.config.image_size:
+            resized_student_trajectory = []
+            for img, t in student_trajectory:
+                resized_img = torch.nn.functional.interpolate(
+                    img, 
+                    size=(self.config.image_size, self.config.image_size),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+                resized_student_trajectory.append((resized_img, t))
+            student_trajectory = resized_student_trajectory
+        
+        return teacher_trajectory, student_trajectory
     
     def load_trajectories(self, size_factor=None, indices=None):
         """
@@ -311,7 +433,7 @@ class TrajectoryManager:
         
         return all_metrics
 
-def generate_trajectories_with_disk_storage(teacher_model, student_model, config, size_factor=1.0, num_samples=10):
+def generate_trajectories_with_disk_storage(teacher_model, student_model, config, size_factor=1.0, num_samples=10, fixed_samples=None):
     """
     Generate trajectories and store them on disk
     
@@ -321,12 +443,13 @@ def generate_trajectories_with_disk_storage(teacher_model, student_model, config
         config: Configuration object
         size_factor: Size factor of the student model
         num_samples: Number of trajectory pairs to generate
+        fixed_samples: Fixed samples to use for trajectory generation (for consistent comparison)
         
     Returns:
         trajectory_manager: TrajectoryManager object
     """
     # Create trajectory manager
-    trajectory_manager = TrajectoryManager(teacher_model, student_model, config, size_factor)
+    trajectory_manager = TrajectoryManager(teacher_model, student_model, config, size_factor, fixed_samples)
     
     # Check if trajectories already exist
     existing_files = [

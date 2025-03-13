@@ -213,7 +213,7 @@ def plot_attention_metrics_by_timestep(metrics_by_timestep, output_dir, size_fac
     plt.savefig(os.path.join(output_dir, f'attention_metrics_by_timestep_size_{size_factor}.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def analyze_attention_maps(teacher_model, student_model, config, output_dir=None, size_factor=None):
+def analyze_attention_maps(teacher_model, student_model, config, output_dir=None, size_factor=None, fixed_samples=None):
     """
     Analyze attention maps of models
     
@@ -223,6 +223,7 @@ def analyze_attention_maps(teacher_model, student_model, config, output_dir=None
         config: Configuration object
         output_dir: Directory to save visualizations
         size_factor: Size factor of the student model for labeling
+        fixed_samples: Fixed samples to use for analysis (for consistent comparison)
         
     Returns:
         Dictionary of analysis results
@@ -241,13 +242,15 @@ def analyze_attention_maps(teacher_model, student_model, config, output_dir=None
     teacher_model.eval()
     student_model.eval()
     
-    # Get test dataset
-    test_dataset = config.get_test_dataset()
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
-    
-    # Get a batch of images
-    images, _ = next(iter(test_loader))
-    images = images.to(device)
+    # Get test dataset or use fixed samples
+    if fixed_samples is not None:
+        print(f"Using {len(fixed_samples)} fixed samples for consistent comparison")
+        images = fixed_samples[:1].to(device)  # Use just one sample for attention analysis
+    else:
+        test_dataset = config.get_test_dataset()
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+        images, _ = next(iter(test_loader))
+        images = images.to(device)
     
     # Number of timesteps to analyze
     n_timesteps = 5

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import os
 from torchvision.utils import make_grid
 
-def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=None):
+def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=None, fixed_samples=None):
     """
     Create a visual comparison of the denoising process across different models
     
@@ -17,6 +17,7 @@ def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=Non
         config: Configuration object
         num_samples: Number of samples to generate
         save_dir: Directory to save results
+        fixed_samples: Fixed samples to use for consistent comparison
         
     Returns:
         None
@@ -57,10 +58,17 @@ def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=Non
             else:
                 model_names = [sf[0] for sf in size_factors]
     
-    # Generate random noise as starting point
+    # Get device
     device = next(models[model_names[0]].parameters()).device
-    shape = (num_samples, config.channels, config.image_size, config.image_size)
-    noise = torch.randn(shape, device=device)
+    
+    # Use fixed samples if provided, otherwise generate random noise
+    if fixed_samples is not None and len(fixed_samples) >= num_samples:
+        print(f"Using {num_samples} fixed samples for consistent comparison")
+        noise = fixed_samples[:num_samples].to(device)
+    else:
+        print("Generating random noise as starting point")
+        shape = (num_samples, config.channels, config.image_size, config.image_size)
+        noise = torch.randn(shape, device=device)
     
     # Create a figure with subplots for each model
     fig, axes = plt.subplots(len(model_names), 1, figsize=(12, 4*len(model_names)))
