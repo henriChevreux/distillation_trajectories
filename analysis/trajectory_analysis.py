@@ -9,6 +9,8 @@ import pandas as pd
 from sklearn.manifold import TSNE
 import umap
 
+# New comment
+
 def compute_trajectory_embeddings(trajectories, method='tsne'):
     """
     Compute low-dimensional embeddings of trajectories using t-SNE or UMAP.
