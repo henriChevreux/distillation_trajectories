@@ -48,7 +48,6 @@ pip-selfcheck.json
 .settings/
 
 # Project specific
-
 analysis-old/
 trajectories/
 test_results/
