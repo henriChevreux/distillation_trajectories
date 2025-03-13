@@ -21,7 +21,7 @@ except ImportError:
 
 def compute_lpips(image1, image2, device):
     """
-    Compute LPIPS perceptual similarity between two images
+    Compute LPIPS (Learned Perceptual Image Patch Similarity) between two images
     
     Args:
         image1: First image tensor (normalized to [0, 1])
@@ -41,6 +41,25 @@ def compute_lpips(image1, image2, device):
     # Scale images to [-1, 1] for LPIPS
     image1_scaled = 2 * image1 - 1
     image2_scaled = 2 * image2 - 1
+    
+    # Check if images are too small for LPIPS and resize if necessary
+    # LPIPS with AlexNet requires images to be at least 32x32
+    min_size = 32
+    if image1_scaled.shape[2] < min_size or image1_scaled.shape[3] < min_size or \
+       image2_scaled.shape[2] < min_size or image2_scaled.shape[3] < min_size:
+        print(f"Resizing images from {image1_scaled.shape[2]}x{image1_scaled.shape[3]} to {min_size}x{min_size} for LPIPS calculation")
+        image1_scaled = torch.nn.functional.interpolate(
+            image1_scaled, 
+            size=(min_size, min_size),
+            mode='bilinear', 
+            align_corners=True
+        )
+        image2_scaled = torch.nn.functional.interpolate(
+            image2_scaled, 
+            size=(min_size, min_size),
+            mode='bilinear', 
+            align_corners=True
+        )
     
     # Compute distance
     with torch.no_grad():
@@ -73,6 +92,29 @@ def compute_fid(real_images, generated_images, device, batch_size=8):
         transforms.Resize((299, 299)),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
+    
+    # Check if images are too small and resize if necessary
+    # Inception v3 requires images to be at least 75x75
+    min_size = 75
+    for i in range(len(real_images)):
+        if real_images[i].shape[2] < min_size or real_images[i].shape[3] < min_size:
+            print(f"Resizing real image from {real_images[i].shape[2]}x{real_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
+            real_images[i] = torch.nn.functional.interpolate(
+                real_images[i], 
+                size=(min_size, min_size),
+                mode='bilinear', 
+                align_corners=True
+            )
+    
+    for i in range(len(generated_images)):
+        if generated_images[i].shape[2] < min_size or generated_images[i].shape[3] < min_size:
+            print(f"Resizing generated image from {generated_images[i].shape[2]}x{generated_images[i].shape[3]} to {min_size}x{min_size} for FID calculation")
+            generated_images[i] = torch.nn.functional.interpolate(
+                generated_images[i], 
+                size=(min_size, min_size),
+                mode='bilinear', 
+                align_corners=True
+            )
     
     # Extract features for real images
     real_features = []

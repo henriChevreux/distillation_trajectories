@@ -119,6 +119,16 @@ def generate_image_with_latents(model, diffusion_params, config, device):
             # Predict noise
             noise_pred = model(x, t_tensor)
             
+            # Ensure noise_pred has the same shape as x
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred, 
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+            
             # Update x
             if t > 0:
                 # Sample noise for the next step
@@ -187,6 +197,16 @@ def manipulate_latent(model, diffusion_params, latent, direction, strength, conf
             
             # Predict noise
             noise_pred = model(x, t_tensor)
+            
+            # Ensure noise_pred has the same shape as x
+            if noise_pred.shape != x.shape:
+                print(f"Resizing noise prediction from {noise_pred.shape} to {x.shape}")
+                noise_pred = torch.nn.functional.interpolate(
+                    noise_pred, 
+                    size=(x.shape[2], x.shape[3]),
+                    mode='bilinear', 
+                    align_corners=True
+                )
             
             # Update x
             if t > 0:

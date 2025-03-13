@@ -7,9 +7,13 @@ import os
 import argparse
 import torch
 import numpy as np
+import json
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import sys
+from PIL import Image
+import lpips
+from sklearn.decomposition import PCA
 
 # Add the project root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,23 +24,347 @@ from utils.diffusion import get_diffusion_params
 from utils.trajectory_manager import TrajectoryManager
 
 # Import editing modules
-from editing.prompt_editing import apply_prompt_editing
-from editing.masked_inpainting import apply_masked_inpainting
-from editing.latent_manipulation import apply_latent_manipulation
+from editing.prompt_editing import apply_prompt_editing, visualize_prompt_editing
+from editing.masked_inpainting import apply_masked_inpainting, visualize_inpainting
+from editing.latent_manipulation import apply_latent_manipulation, visualize_latent_manipulation
 
 # Import evaluation metrics
 from evaluation.metrics import compute_lpips, compute_fid, compute_trajectory_divergence
+from analysis.metrics.trajectory_metrics import visualize_metrics
+
+def visualize_trajectory_pca(teacher_trajectories, student_trajectories, edit_type, edit_points, output_dir, size_factor=None, direction_name=None, strength=None):
+    """
+    Create PCA visualization of teacher and student model trajectories
+    
+    Args:
+        teacher_trajectories: List of teacher trajectories
+        student_trajectories: List of student trajectories
+        edit_type: Type of editing being performed (e.g., 'latent', 'prompt', 'inpainting')
+        edit_points: Dictionary with 'teacher' and 'student' keys, each containing the timestep indices where editing is applied
+        output_dir: Directory to save visualizations
+        size_factor: Size factor of the student model for labeling
+        direction_name: Name of the direction used for latent manipulation (if applicable)
+        strength: Strength of the manipulation (if applicable)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract images from trajectories
+    teacher_images = []
+    teacher_timesteps = []
+    student_images = []
+    student_timesteps = []
+    
+    for trajectory in teacher_trajectories:
+        for img, timestep in trajectory:
+            # Convert to numpy and flatten
+            if isinstance(img, torch.Tensor):
+                img_np = img.cpu().detach().numpy()
+                img_flat = img_np.reshape(1, -1)
+                teacher_images.append(img_flat)
+                teacher_timesteps.append(timestep)
+    
+    for trajectory in student_trajectories:
+        for img, timestep in trajectory:
+            # Convert to numpy and flatten
+            if isinstance(img, torch.Tensor):
+                img_np = img.cpu().detach().numpy()
+                img_flat = img_np.reshape(1, -1)
+                student_images.append(img_flat)
+                student_timesteps.append(timestep)
+    
+    # Stack all flattened images
+    if teacher_images and student_images:
+        teacher_features = np.vstack(teacher_images)
+        student_features = np.vstack(student_images)
+        
+        # Combine features for PCA fitting
+        combined_features = np.vstack([teacher_features, student_features])
+        
+        # Fit PCA
+        pca = PCA(n_components=2)
+        combined_pca = pca.fit_transform(combined_features)
+        
+        # Split back into teacher and student
+        teacher_pca = combined_pca[:len(teacher_features)]
+        student_pca = combined_pca[len(teacher_features):]
+        
+        # Create figure
+        plt.figure(figsize=(14, 10))
+        
+        # Create colormaps
+        teacher_cmap = plt.cm.viridis
+        student_cmap = plt.cm.plasma
+        
+        # Normalize timesteps to [0, 1] for colormap
+        max_timestep = max(np.max(teacher_timesteps), np.max(student_timesteps))
+        norm_teacher_timesteps = np.array(teacher_timesteps) / max_timestep
+        norm_student_timesteps = np.array(student_timesteps) / max_timestep
+        
+        # Plot teacher trajectory
+        sc1 = plt.scatter(
+            teacher_pca[:, 0], teacher_pca[:, 1],
+            c=norm_teacher_timesteps, cmap=teacher_cmap, marker='o', s=50, alpha=0.7, label='Teacher'
+        )
+        
+        # Plot student trajectory
+        sc2 = plt.scatter(
+            student_pca[:, 0], student_pca[:, 1],
+            c=norm_student_timesteps, cmap=student_cmap, marker='x', s=50, alpha=0.7, label='Student'
+        )
+        
+        # Connect points in sequence for teacher
+        for i in range(len(teacher_pca) - 1):
+            plt.plot(
+                [teacher_pca[i, 0], teacher_pca[i+1, 0]],
+                [teacher_pca[i, 1], teacher_pca[i+1, 1]],
+                'b-', alpha=0.3
+            )
+        
+        # Connect points in sequence for student
+        for i in range(len(student_pca) - 1):
+            plt.plot(
+                [student_pca[i, 0], student_pca[i+1, 0]],
+                [student_pca[i, 1], student_pca[i+1, 1]],
+                'r-', alpha=0.3
+            )
+        
+        # Mark edit points with stars
+        if 'teacher' in edit_points and edit_points['teacher'] is not None:
+            for idx in edit_points['teacher']:
+                if 0 <= idx < len(teacher_pca):
+                    plt.scatter(
+                        teacher_pca[idx, 0], teacher_pca[idx, 1],
+                        marker='*', s=200, color='blue', edgecolor='black', zorder=10,
+                        label='Teacher Edit Point' if idx == edit_points['teacher'][0] else ""
+                    )
+        
+        if 'student' in edit_points and edit_points['student'] is not None:
+            for idx in edit_points['student']:
+                if 0 <= idx < len(student_pca):
+                    plt.scatter(
+                        student_pca[idx, 0], student_pca[idx, 1],
+                        marker='*', s=200, color='red', edgecolor='black', zorder=10,
+                        label='Student Edit Point' if idx == edit_points['student'][0] else ""
+                    )
+        
+        # Add colorbar
+        cbar = plt.colorbar(sc1)
+        cbar.set_label('Normalized Timestep')
+        
+        # Add labels and title
+        plt.xlabel(f'Principal Component 1 (Explained Variance: {pca.explained_variance_ratio_[0]:.2f})')
+        plt.ylabel(f'Principal Component 2 (Explained Variance: {pca.explained_variance_ratio_[1]:.2f})')
+        
+        # Create title with editing information
+        title = f'PCA of {edit_type.capitalize()} Editing Trajectories'
+        if direction_name and strength:
+            title += f' ({direction_name}, Strength: {strength})'
+        if size_factor:
+            title += f' (Size Factor: {size_factor})'
+        
+        plt.title(title)
+        
+        # Add legend
+        plt.legend(loc='best')
+        
+        # Add grid
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # Save figure
+        filename = f'pca_trajectories_{edit_type}'
+        if direction_name:
+            filename += f'_{direction_name}'
+        if strength:
+            filename += f'_strength_{strength}'
+        
+        plt.savefig(os.path.join(output_dir, f'{filename}.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Create 3D PCA visualization if we have enough dimensions
+        if combined_features.shape[1] >= 3:
+            pca = PCA(n_components=3)
+            combined_pca = pca.fit_transform(combined_features)
+            
+            # Split back into teacher and student
+            teacher_pca = combined_pca[:len(teacher_features)]
+            student_pca = combined_pca[len(teacher_features):]
+            
+            # Create 3D figure
+            fig = plt.figure(figsize=(14, 12))
+            ax = fig.add_subplot(111, projection='3d')
+            
+            # Plot teacher trajectory
+            sc1 = ax.scatter(
+                teacher_pca[:, 0], teacher_pca[:, 1], teacher_pca[:, 2],
+                c=norm_teacher_timesteps, cmap=teacher_cmap, marker='o', s=50, alpha=0.7, label='Teacher'
+            )
+            
+            # Plot student trajectory
+            sc2 = ax.scatter(
+                student_pca[:, 0], student_pca[:, 1], student_pca[:, 2],
+                c=norm_student_timesteps, cmap=student_cmap, marker='x', s=50, alpha=0.7, label='Student'
+            )
+            
+            # Mark edit points with stars
+            if 'teacher' in edit_points and edit_points['teacher'] is not None:
+                for idx in edit_points['teacher']:
+                    if 0 <= idx < len(teacher_pca):
+                        ax.scatter(
+                            teacher_pca[idx, 0], teacher_pca[idx, 1], teacher_pca[idx, 2],
+                            marker='*', s=200, color='blue', edgecolor='black', zorder=10,
+                            label='Teacher Edit Point' if idx == edit_points['teacher'][0] else ""
+                        )
+            
+            if 'student' in edit_points and edit_points['student'] is not None:
+                for idx in edit_points['student']:
+                    if 0 <= idx < len(student_pca):
+                        ax.scatter(
+                            student_pca[idx, 0], student_pca[idx, 1], student_pca[idx, 2],
+                            marker='*', s=200, color='red', edgecolor='black', zorder=10,
+                            label='Student Edit Point' if idx == edit_points['student'][0] else ""
+                        )
+            
+            # Add colorbar
+            cbar = plt.colorbar(sc1, ax=ax, shrink=0.7)
+            cbar.set_label('Normalized Timestep')
+            
+            # Add labels and title
+            ax.set_xlabel(f'PC1 (Var: {pca.explained_variance_ratio_[0]:.2f})')
+            ax.set_ylabel(f'PC2 (Var: {pca.explained_variance_ratio_[1]:.2f})')
+            ax.set_zlabel(f'PC3 (Var: {pca.explained_variance_ratio_[2]:.2f})')
+            
+            # Create title with editing information
+            title = f'3D PCA of {edit_type.capitalize()} Editing Trajectories'
+            if direction_name and strength:
+                title += f' ({direction_name}, Strength: {strength})'
+            if size_factor:
+                title += f' (Size Factor: {size_factor})'
+            
+            ax.set_title(title)
+            
+            # Add legend
+            ax.legend()
+            
+            # Save figure
+            filename = f'pca_3d_trajectories_{edit_type}'
+            if direction_name:
+                filename += f'_{direction_name}'
+            if strength:
+                filename += f'_strength_{strength}'
+            
+            plt.savefig(os.path.join(output_dir, f'{filename}.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+
+def visualize_latent_metrics(metrics, output_dir, size_factor=None):
+    """
+    Visualize metrics for latent manipulation analysis
+    
+    Args:
+        metrics: Dictionary of metrics
+        output_dir: Directory to save visualizations
+        size_factor: Size factor of the student model for labeling
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Plot LPIPS distances
+    if "lpips" in metrics:
+        plt.figure(figsize=(10, 6))
+        plt.bar(['LPIPS Distance'], [np.mean(metrics["lpips"])], color='purple')
+        plt.title(f'LPIPS Distance (Size Factor: {size_factor})' if size_factor else 'LPIPS Distance')
+        plt.ylabel('Distance')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'lpips_distance.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # Plot FID score
+    if "fid" in metrics:
+        plt.figure(figsize=(10, 6))
+        plt.bar(['FID Score'], [metrics["fid"]], color='green')
+        plt.title(f'FID Score (Size Factor: {size_factor})' if size_factor else 'FID Score')
+        plt.ylabel('Score')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'fid_score.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # Plot trajectory divergence metrics
+    if "trajectory_divergence" in metrics:
+        div = metrics["trajectory_divergence"]
+        
+        # Plot average distance
+        plt.figure(figsize=(10, 6))
+        plt.bar(['Average Distance'], [div["avg_distance"]], color='blue')
+        plt.title(f'Average Trajectory Distance (Size Factor: {size_factor})' if size_factor else 'Average Trajectory Distance')
+        plt.ylabel('Distance')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'avg_distance.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot max distance
+        plt.figure(figsize=(10, 6))
+        plt.bar(['Max Distance'], [div["max_distance"]], color='red')
+        plt.title(f'Max Trajectory Distance (Size Factor: {size_factor})' if size_factor else 'Max Trajectory Distance')
+        plt.ylabel('Distance')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'max_distance.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot average similarity
+        plt.figure(figsize=(10, 6))
+        plt.bar(['Average Similarity'], [div["avg_similarity"]], color='green')
+        plt.title(f'Average Trajectory Similarity (Size Factor: {size_factor})' if size_factor else 'Average Trajectory Similarity')
+        plt.ylabel('Similarity')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'avg_similarity.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot min similarity
+        plt.figure(figsize=(10, 6))
+        plt.bar(['Min Similarity'], [div["min_similarity"]], color='orange')
+        plt.title(f'Min Trajectory Similarity (Size Factor: {size_factor})' if size_factor else 'Min Trajectory Similarity')
+        plt.ylabel('Similarity')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'min_similarity.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot length ratio
+        plt.figure(figsize=(10, 6))
+        plt.bar(['Length Ratio'], [div["length_ratio"]], color='purple')
+        plt.title(f'Trajectory Length Ratio (Size Factor: {size_factor})' if size_factor else 'Trajectory Length Ratio')
+        plt.ylabel('Ratio (Student/Teacher)')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'length_ratio.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot distance over time
+        plt.figure(figsize=(12, 6))
+        plt.plot(div["distances"], color='blue')
+        plt.title(f'Trajectory Distance Over Time (Size Factor: {size_factor})' if size_factor else 'Trajectory Distance Over Time')
+        plt.xlabel('Step')
+        plt.ylabel('Distance')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'distance_over_time.png'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Plot similarity over time
+        plt.figure(figsize=(12, 6))
+        plt.plot(div["similarities"], color='green')
+        plt.title(f'Trajectory Similarity Over Time (Size Factor: {size_factor})' if size_factor else 'Trajectory Similarity Over Time')
+        plt.xlabel('Step')
+        plt.ylabel('Similarity')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.savefig(os.path.join(output_dir, 'similarity_over_time.png'), dpi=300, bbox_inches='tight')
+        plt.close()
 
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="Analyze editing capabilities of diffusion models")
-    parser.add_argument("--teacher_model", type=str, default=None, help="Path to teacher model")
+    parser.add_argument("--teacher_model", type=str, default="output/models/teacher/model_epoch_10.pt", help="Path to teacher model")
     parser.add_argument("--student_model", type=str, default=None, help="Path to student model")
-    parser.add_argument("--size_factor", type=float, default=1.0, help="Size factor of student model")
+    parser.add_argument("--size_factor", type=float, default=0.5, help="Size factor of student model")
     parser.add_argument("--output_dir", type=str, default="results/editing", help="Output directory")
     parser.add_argument("--edit_mode", type=str, choices=["prompt", "inpainting", "latent", "all"], 
                         default="all", help="Editing mode to analyze")
-    parser.add_argument("--num_samples", type=int, default=10, help="Number of samples to generate")
+    parser.add_argument("--num_samples", type=int, default=5, help="Number of samples to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     return parser.parse_args()
 
@@ -63,7 +391,7 @@ def main():
     print(f"Using {device} device")
     
     # Load teacher model
-    teacher_model_path = args.teacher_model or os.path.join('models/', 'model_epoch_10.pt')
+    teacher_model_path = args.teacher_model or os.path.join('output/models/teacher/', 'model_epoch_10.pt')
     print(f"Loading teacher model from {teacher_model_path}...")
     teacher_model = SimpleUNet(config).to(device)
     teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
@@ -71,7 +399,7 @@ def main():
     
     # Load student model
     student_model_path = args.student_model or os.path.join(
-        'models/', f'student_model_size_{args.size_factor}_epoch_1.pt')
+        'output/models/students/', f'size_{args.size_factor}/model_epoch_1.pt')
     print(f"Loading student model from {student_model_path}...")
     
     # Determine architecture type based on size factor
@@ -91,6 +419,20 @@ def main():
     # Create diffusion parameters
     teacher_params = get_diffusion_params(config.teacher_steps, config)
     student_params = get_diffusion_params(config.student_steps, config)
+    
+    # Add timesteps to diffusion parameters
+    teacher_params['timesteps'] = config.teacher_steps
+    student_params['timesteps'] = config.student_steps
+    
+    # Add alphas to diffusion parameters
+    teacher_betas = teacher_params['betas']
+    student_betas = student_params['betas']
+    
+    teacher_alphas = 1.0 - teacher_betas
+    student_alphas = 1.0 - student_betas
+    
+    teacher_params['alphas'] = teacher_alphas
+    student_params['alphas'] = student_alphas
     
     # Run editing analysis based on selected mode
     results = {}
@@ -238,6 +580,56 @@ def run_prompt_editing_analysis(teacher_model, student_model,
     os.makedirs(metrics_dir, exist_ok=True)
     visualize_metrics(metrics, metrics_dir, args.size_factor)
     
+    # Add PCA visualization of trajectories
+    if trajectory_divergences:
+        # Create PCA visualization directory
+        pca_dir = os.path.join(prompt_dir, "pca_visualizations")
+        os.makedirs(pca_dir, exist_ok=True)
+        
+        # For each prompt pair, create a PCA visualization
+        for i, (teacher_result, student_result) in enumerate(zip(teacher_results, student_results)):
+            if "edited_trajectory" in teacher_result and "edited_trajectory" in student_result:
+                # Get trajectories
+                teacher_trajectory = teacher_result["edited_trajectory"]
+                student_trajectory = student_result["edited_trajectory"]
+                
+                # For prompt editing, the edit point is at the beginning
+                edit_points = {
+                    "teacher": [0],  # First point in the trajectory
+                    "student": [0]   # First point in the trajectory
+                }
+                
+                # Get prompt information for labeling
+                original_prompt, edited_prompt = prompt_pairs[i]
+                prompt_label = f"{original_prompt}_to_{edited_prompt}"
+                
+                # Create PCA visualization
+                visualize_trajectory_pca(
+                    [teacher_trajectory],
+                    [student_trajectory],
+                    "prompt",
+                    edit_points,
+                    os.path.join(pca_dir, prompt_label),
+                    args.size_factor,
+                    prompt_label,
+                    None
+                )
+        
+        # Also create a combined visualization with all prompt pairs
+        all_teacher_trajectories = [result["edited_trajectory"] for result in teacher_results if "edited_trajectory" in result]
+        all_student_trajectories = [result["edited_trajectory"] for result in student_results if "edited_trajectory" in result]
+        
+        if all_teacher_trajectories and all_student_trajectories:
+            # Create combined PCA visualization
+            visualize_trajectory_pca(
+                all_teacher_trajectories,
+                all_student_trajectories,
+                "prompt",
+                {"teacher": [0], "student": [0]},
+                os.path.join(pca_dir, "combined"),
+                args.size_factor
+            )
+    
     return {
         "teacher_results": teacher_results,
         "student_results": student_results,
@@ -363,6 +755,52 @@ def run_inpainting_analysis(teacher_model, student_model,
     metrics_dir = os.path.join(inpainting_dir, "metrics")
     os.makedirs(metrics_dir, exist_ok=True)
     visualize_metrics(metrics, metrics_dir, args.size_factor)
+    
+    # Add PCA visualization of trajectories
+    if trajectory_divergences:
+        # Create PCA visualization directory
+        pca_dir = os.path.join(inpainting_dir, "pca_visualizations")
+        os.makedirs(pca_dir, exist_ok=True)
+        
+        # For each inpainting sample, create a PCA visualization
+        for i, (teacher_result, student_result) in enumerate(zip(teacher_results, student_results)):
+            if "trajectory" in teacher_result and "trajectory" in student_result:
+                # Get trajectories
+                teacher_trajectory = teacher_result["trajectory"]
+                student_trajectory = student_result["trajectory"]
+                
+                # For inpainting, the edit point is at the beginning (mask is applied at start)
+                edit_points = {
+                    "teacher": [0],  # First point in the trajectory
+                    "student": [0]   # First point in the trajectory
+                }
+                
+                # Create PCA visualization
+                visualize_trajectory_pca(
+                    [teacher_trajectory],
+                    [student_trajectory],
+                    "inpainting",
+                    edit_points,
+                    os.path.join(pca_dir, f"sample_{i+1}"),
+                    args.size_factor,
+                    f"mask_{i+1}",
+                    None
+                )
+        
+        # Also create a combined visualization with all inpainting samples
+        all_teacher_trajectories = [result["trajectory"] for result in teacher_results if "trajectory" in result]
+        all_student_trajectories = [result["trajectory"] for result in student_results if "trajectory" in result]
+        
+        if all_teacher_trajectories and all_student_trajectories:
+            # Create combined PCA visualization
+            visualize_trajectory_pca(
+                all_teacher_trajectories,
+                all_student_trajectories,
+                "inpainting",
+                {"teacher": [0], "student": [0]},
+                os.path.join(pca_dir, "combined"),
+                args.size_factor
+            )
     
     return {
         "teacher_results": teacher_results,
@@ -501,11 +939,65 @@ def run_latent_manipulation_analysis(teacher_model, student_model,
                         "length_ratio": np.mean([d["length_ratio"] for d in trajectory_divergences])
                     }
                     metrics["trajectory_divergence"] = avg_divergence
+                    
+                    # Add path lengths for visualization
+                    teacher_path_lengths = [np.sum(np.sqrt(np.sum(np.diff([img[0].cpu().flatten().numpy() for img in t_traj["manipulated"]], axis=0)**2, axis=1))) for t_traj in teacher_result["trajectories"]]
+                    student_path_lengths = [np.sum(np.sqrt(np.sum(np.diff([img[0].cpu().flatten().numpy() for img in s_traj["manipulated"]], axis=0)**2, axis=1))) for s_traj in student_result["trajectories"]]
+                    
+                    metrics["teacher_path_length"] = np.mean(teacher_path_lengths)
+                    metrics["student_path_length"] = np.mean(student_path_lengths)
             
             # Visualize metrics
             metrics_dir = os.path.join(latent_dir, "metrics", direction_name, f"strength_{strength}")
             os.makedirs(metrics_dir, exist_ok=True)
-            visualize_metrics(metrics, metrics_dir, args.size_factor)
+            visualize_latent_metrics(metrics, metrics_dir, args.size_factor)
+            
+            # Add PCA visualization of trajectories
+            if "trajectories" in teacher_result and "trajectories" in student_result:
+                # For each sample, create a PCA visualization
+                for sample_idx in range(len(teacher_result["trajectories"])):
+                    # Get trajectories for this sample
+                    teacher_trajectory = teacher_result["trajectories"][sample_idx]["manipulated"]
+                    student_trajectory = student_result["trajectories"][sample_idx]["manipulated"]
+                    
+                    # Determine edit points (where manipulation is applied)
+                    # For latent manipulation, the edit point is at the beginning of the trajectory
+                    edit_points = {
+                        "teacher": [0],  # First point in the trajectory
+                        "student": [0]   # First point in the trajectory
+                    }
+                    
+                    # Create PCA visualization directory
+                    pca_dir = os.path.join(latent_dir, "pca_visualizations", direction_name, f"strength_{strength}")
+                    os.makedirs(pca_dir, exist_ok=True)
+                    
+                    # Create PCA visualization
+                    visualize_trajectory_pca(
+                        [teacher_trajectory],
+                        [student_trajectory],
+                        "latent",
+                        edit_points,
+                        os.path.join(pca_dir, f"sample_{sample_idx+1}"),
+                        args.size_factor,
+                        direction_name,
+                        strength
+                    )
+                
+                # Also create a combined visualization with all samples
+                all_teacher_trajectories = [traj["manipulated"] for traj in teacher_result["trajectories"]]
+                all_student_trajectories = [traj["manipulated"] for traj in student_result["trajectories"]]
+                
+                # Create combined PCA visualization
+                visualize_trajectory_pca(
+                    all_teacher_trajectories,
+                    all_student_trajectories,
+                    "latent",
+                    {"teacher": [0], "student": [0]},
+                    os.path.join(latent_dir, "pca_visualizations", direction_name, f"strength_{strength}", "combined"),
+                    args.size_factor,
+                    direction_name,
+                    strength
+                )
             
             direction_metrics[strength] = metrics
         
