@@ -1,0 +1,10 @@
+Size Factor: 0.1
+
+Mean Endpoint Distance: 457.1120
+Mean Path Length Ratio (Student/Teacher): 5.0699
+Mean Teacher Path Length: 93.0258
+Mean Student Path Length: 471.6361
+Mean Efficiency Ratio (Student/Teacher): 0.1968
+Mean Teacher Efficiency: 4.9248
+Mean Student Efficiency: 0.9693
+Mean Wasserstein Distance: 3.9216

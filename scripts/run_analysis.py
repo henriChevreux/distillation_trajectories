@@ -21,6 +21,7 @@ from utils.trajectory_manager import generate_trajectories_with_disk_storage
 from analysis import (
     compute_trajectory_metrics,
     visualize_metrics,
+    visualize_batch_metrics,
     dimensionality_reduction_analysis,
     analyze_noise_prediction,
     analyze_attention_maps,
@@ -405,11 +406,9 @@ def main():
             
             # Create the comparison plot
             create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
+                {**{"teacher": teacher_model}, **student_models},
                 config,
-                num_samples=args.num_denoising_samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
             return
@@ -441,7 +440,7 @@ def main():
                 
                 # 3. Visualize metrics
                 print("Visualizing metrics...")
-                summary = visualize_metrics(metrics, config, suffix=f"_size_{size_factor}")
+                summary = visualize_batch_metrics(metrics, config, suffix=f"_size_{size_factor}")
                 print("Metrics summary:", summary)
                 
                 # Store metrics for comparative analysis
@@ -540,8 +539,7 @@ def main():
             # Create 3D visualization that incorporates model size as a dimension
             print("Creating 3D model size visualization using trajectory metrics...")
             # We're using trajectory_metrics_for_3d instead of the full trajectories to save memory
-            generate_3d_model_size_visualization(trajectory_metrics_for_3d, trajectory_metrics_for_3d, 
-                                                sorted(student_models.keys()), config)
+            generate_3d_model_size_visualization(trajectory_metrics_for_3d, config)
             
             # Create time-dependent visualizations
             print("Creating time-dependent visualizations...")
@@ -564,11 +562,9 @@ def main():
             
             # Create the comparison plot
             create_denoising_comparison_plot(
-                teacher_model,
-                student_models,
-                test_samples,
+                {**{"teacher": teacher_model}, **student_models},
                 config,
-                num_samples=args.num_denoising_samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
         
