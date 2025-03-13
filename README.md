@@ -16,6 +16,7 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
       - [Teacher Model](#teacher-model)
       - [Student Models](#student-models)
     - [Running Analysis](#running-analysis)
+    - [Editing Analysis](#editing-analysis)
     - [CPU Mode](#cpu-mode)
     - [Testing](#testing)
   - [⚙️ Configuration](#️-configuration)
@@ -36,6 +37,11 @@ This toolkit enables detailed comparison between teacher diffusion models and st
 - **Detailed visualizations**: Charts showing performance trends
 - **Comprehensive metrics**: Trajectory analysis, FID scores, efficiency measurements
 - **Multi-device support**: CUDA, MPS, CPU
+- **Editing capabilities analysis**: Compare how model size affects editing performance
+  - Prompt-based editing
+  - Masked inpainting
+  - Latent space manipulation
+  - Classifier-free guidance
 
 ## 📦 Installation
 
@@ -66,6 +72,11 @@ distillation_trajectories/
 │   └── ...                    # Other analysis types
 ├── config/                    # Configuration
 ├── data/                      # Data handling
+├── editing/                   # Editing modules
+│   ├── prompt_editing.py      # Prompt-based editing
+│   ├── masked_inpainting.py   # Masked inpainting
+│   ├── latent_manipulation.py # Latent space manipulation
+│   └── classifier_free_guidance.py # Classifier-free guidance
 ├── models/                    # Model definitions
 ├── output/                    # All output files
 │   ├── models/                # Models directory
@@ -90,6 +101,9 @@ python scripts/train_students.py
 
 # Run analysis
 python scripts/run_analysis.py
+
+# Run editing analysis
+python scripts/edit_analysis.py
 ```
 
 ## 📖 Usage Guide
@@ -157,6 +171,48 @@ Skip specific analysis modules:
 - `--skip_3d`: Skip 3D visualization (default: run this analysis)
 - `--skip_fid`: Skip FID calculation (default: run this analysis)
 
+### Editing Analysis
+
+Analyze and compare editing capabilities of teacher and student diffusion models:
+
+```bash
+python scripts/edit_analysis.py [OPTIONS]
+```
+
+Options:
+- `--teacher_model PATH`: Path to teacher model (default: "output/models/teacher/model_epoch_10.pt")
+- `--student_model PATH`: Path to student model (default: based on size_factor)
+- `--size_factor N`: Size factor of student model (default: 0.5)
+- `--output_dir PATH`: Output directory (default: "results/editing")
+- `--edit_mode [prompt|inpainting|latent|cfg|all]`: Editing mode to analyze (default: "all")
+- `--num_samples N`: Number of samples to generate (default: 5)
+- `--seed N`: Random seed (default: 42)
+- `--enable_fid`: Enable FID calculations (disabled by default)
+- `--guidance_scale N`: Guidance scale for classifier-free guidance (default: 3.0)
+
+Editing modes:
+- **Prompt Editing**: Simulates text-to-image editing by modifying the generation process based on text prompts
+- **Inpainting**: Applies masked inpainting to selectively regenerate parts of an image
+- **Latent Manipulation**: Manipulates the latent space along semantic directions
+- **Classifier-Free Guidance (CFG)**: Applies classifier-free guidance to steer the generation process
+
+The script generates comprehensive visualizations for each editing mode:
+- Side-by-side comparisons of original and edited images
+- Trajectory visualizations showing the diffusion process
+- PCA projections of trajectories in latent space
+- Metrics comparing teacher and student models' editing capabilities
+- For CFG mode: guidance scale comparisons showing the effect of different guidance strengths
+
+Results are organized in the output directory by editing mode:
+```
+results/editing/
+├── prompt_editing/           # Prompt-based editing results
+├── inpainting/               # Masked inpainting results
+├── latent_manipulation/      # Latent space manipulation results
+├── classifier_free_guidance/ # CFG results
+└── summary/                  # Summary report
+```
+
 ### CPU Mode
 
 Force any script to run on CPU (useful for systems without GPU):
@@ -205,6 +261,16 @@ All analysis results are organized in the `output/analysis/` directory:
 - **Dimensionality Reduction** (`dimensionality/`): PCA, t-SNE, and UMAP projections
 - **Attention Analysis** (`attention/`): Attention map visualizations
 - **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
+
+Editing analysis results are organized in the `results/editing/` directory:
+
+- **Prompt Editing** (`prompt_editing/`): Text-to-image editing simulations
+- **Inpainting** (`inpainting/`): Masked inpainting results
+- **Latent Manipulation** (`latent_manipulation/`): Latent space manipulation results
+- **Classifier-Free Guidance** (`classifier_free_guidance/`): CFG results
+  - Trajectory comparisons
+  - PCA visualizations
+  - Guidance scale comparisons
 
 ## ❓ Troubleshooting
 
