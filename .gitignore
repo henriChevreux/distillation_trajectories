@@ -51,7 +51,7 @@ pip-selfcheck.json
 # Project specific
 models/
 results/
-analysis/
+output/analysis/
 analysis-old/
 trajectories/
 test_results/
