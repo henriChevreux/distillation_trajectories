@@ -10,48 +10,49 @@ class Config:
         self.dataset = "AFHQ"  # Using AFHQ dataset
         self.afhq_category = "wild"  # Using wildlife section
         self.high_res_category = "bedroom_train"
-        self.teacher_image_size = 256  # Memory-efficient size
+        
+        # Image and Model Configuration
+        self.teacher_image_size = 512  # High-quality teacher model
         self.image_size = self.teacher_image_size  # Alias for compatibility
         self.channels = 3
-        self.batch_size = 8  # Increased from 2 to 8 with reduced model capacity
+        self.batch_size = 4  # Reduced back to 4 due to memory constraints with 512x512 images
 
         # Training Hyperparameters
-        self.epochs = 10
-        self.lr = 1e-4
-        self.timesteps = 50  # Number of diffusion steps
-        self.save_interval = 1  # Save model every N epochs
+        self.epochs = 15  # Good number for our dataset size (4593 images)
+        self.lr = 1e-4  # Standard for diffusion models
+        self.timesteps = 100  # Reduced from 1000 for faster training while maintaining quality
+        self.save_interval = 5  # Save model every 5 epochs
         
         # Model Architecture (Used by SimpleUNet)
-        # Reduced capacity configuration for 256x256:
-        # - Reduced initial features (64)
-        # - 4 downsampling layers
-        # - Progressive channel growth
-        self.latent_dim = 64  # Reduced from 128
-        self.hidden_dims = [64, 128, 256, 512]  # More gradual channel growth
+        self.latent_dim = 48  # Reduced from 64 to save memory
+        self.hidden_dims = [48, 96, 192, 384]  # Scaled down from [64, 128, 256, 512] to save memory
         
         # Diffusion Process Parameters
         self.beta_start = 1e-4
         self.beta_end = 0.02
+        self.early_stopping_patience = 7  # Adjusted for our dataset size - stop if no improvement for 7 epochs
 
         # Progress Bar Configuration
-        self.progress_bar_leave = False
+        self.progress_bar_leave = True  # Show training history
         self.progress_bar_position = 0
         self.progress_bar_ncols = 100
         
         # Sampling & Visualization
         self.num_samples_to_generate = 16
         self.samples_grid_size = 4
-        self.samples_figure_size = (10, 10)
+        self.samples_figure_size = (12, 12)  # Larger figure for 512x512 images
         
         # Hardware
         self.mps_enabled = False  # Apple Silicon GPU support
 
         # ======= Student Training Parameters =======
-        # These are not used in train_teacher.py
+        self.student_epochs = 8  # Student training epochs (faster convergence with distillation)
         self.student_image_size = 128
-        self.student_image_size_factors = [1.0, 0.5, 0.25, 0.125, 0.0625]  # 256->32, 128->16, 64->8
-        self.student_size_factors = [0.01, 0.2, 0.4, 0.6, 0.8, 1.0]
-        
+        self.student_image_size_factors = [1.0, 0.5, 0.25, 0.125, 0.0625]
+        self.student_size_factors = [0.2, 0.4, 0.5, 0.6, 0.8, 1.0]  # Removed tiny models
+        self.student_steps = 100  # Same as teacher for consistent comparison
+        self.distill = True
+        self.noise_diversity_weight = 0.1
         
         # Base channel configurations for different model sizes
         self.student_base_channels = {
@@ -82,10 +83,6 @@ class Config:
             16: 2,
             8: 2  # Input layer + 1 downsampling layer (8x8 -> 4x4)
         }
-        
-        self.noise_diversity_weight = 0.1
-        self.student_steps = 50
-        self.distill = True
         
         # ======= Analysis Parameters =======
         # These parameters can be adjusted for testing vs production analysis

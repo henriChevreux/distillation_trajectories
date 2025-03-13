@@ -57,20 +57,28 @@ pip install -r requirements.txt
 ```
 distillation_trajectories/
 ├── analysis/                  # Analysis modules
-│   ├── dimensionality/        # Dimensionality reduction analysis
-│   ├── metrics/               # Trajectory metrics
-│   └── ...                    # Other analysis types
+│   ├── mse_heatmap.py        # MSE analysis and visualization
+│   ├── denoising.py          # Denoising process analysis
+│   ├── time_analysis.py      # Time-dependent metrics
+│   └── trajectory_analysis.py # Trajectory comparison tools
 ├── config/                    # Configuration
+│   └── config.py             # Centralized configuration
 ├── data/                      # Data handling
+│   └── dataset.py            # Dataset loading and processing
 ├── models/                    # Model definitions
+│   ├── simple_unet.py        # Teacher model architecture
+│   └── student_unet.py       # Student model architectures
 ├── output/                    # All output files
-│   ├── models/                # Models directory
-│   │   ├── teacher/           # Teacher models
-│   │   └── students/          # Student models by size
-│   └── results/               # Training results
+│   ├── models/               # Trained models
+│   │   ├── teacher/          # Teacher model checkpoints
+│   │   └── students/         # Student models by size
+│   └── analysis/             # Analysis results
 ├── scripts/                   # Executable scripts
-├── testing/                   # Testing utilities
+│   ├── train_teacher.py      # Teacher model training
+│   ├── train_students.py     # Student models training
+│   └── run_analysis.py       # Analysis pipeline
 └── utils/                     # Utility functions
+    └── diffusion.py          # Diffusion process utilities
 ```
 
 ## 🚀 Quick Start
@@ -101,11 +109,28 @@ python scripts/train_teacher.py [OPTIONS]
 ```
 
 Options:
-- `--epochs N`: Number of training epochs (default: 10)
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
-- `--image_size N`: Size of images (default: 16)
-- `--batch_size N`: Batch size (default: 64)
-- `--timesteps N`: Number of diffusion timesteps (default: 50)
+- `--epochs N`: Override the default number of training epochs (recommended: 15-20)
+- `--dataset [MNIST|CIFAR10]`: Dataset to use for training
+- `--image_size N`: Size of images to use for training (default: 512)
+- `--batch_size N`: Batch size for training (default: 8)
+- `--timesteps N`: Number of timesteps for diffusion process (default: 50)
+
+Features:
+- **Automatic Dataset Verification**: Checks dataset availability before training
+- **Memory Check**: Performs GPU memory verification with a small batch
+- **Device Selection**: Automatically selects CUDA > MPS > CPU
+- **Early Stopping**: Stops training if no improvement for 10 epochs
+- **Best Model Tracking**: Saves the best model based on loss
+- **Sample Generation**: Generates and saves samples from the best model
+- **Progress Monitoring**: Shows detailed progress bars and loss tracking
+
+Training Process:
+1. Dataset and memory verification
+2. Model initialization and setup (512x512 resolution)
+3. Training loop with loss tracking (15-20 epochs recommended)
+4. Regular model checkpointing (every 5 epochs)
+5. Sample generation from best model
+6. Early stopping if no improvement for 10 epochs
 
 #### Student Models
 
@@ -115,58 +140,58 @@ Train student models with various size factors:
 python scripts/train_students.py [OPTIONS]
 ```
 
-Options:
-- `--epochs N`: Number of training epochs (default: 5, half of teacher epochs)
-- `--custom_size_factors "0.1,0.5,0.9"`: Specific size factors to train (default: [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
-- `--image_size N`: Size of images (default: 16)
-- `--batch_size N`: Batch size (default: 64)
+Features:
+- **Flexible Architecture**: Automatically adapts model architecture based on size factor
+- **Multi-Resolution Support**: Trains models at different image resolutions
+- **Memory Optimization**: Adjusts batch size based on available GPU memory
+- **Progress Tracking**: Detailed training progress and model size comparisons
+- **Distillation Process**: Knowledge transfer from teacher to student models
 
-Student models are organized by size factor and architecture type:
-- **Tiny** (< 0.1): 2 layers instead of 3
-- **Small** (0.1-0.3): 3 layers with smaller dimensions
-- **Medium** (0.3-0.7): 3 layers with 75% of teacher dimensions
-- **Full** (0.7-1.0): Same architecture as teacher
+The training process includes:
+1. Teacher model loading and verification
+2. Student model architecture selection
+3. Progressive training across different sizes
+4. Regular checkpointing and validation
+5. Performance comparison with teacher
 
 ### Running Analysis
 
-Run comprehensive analysis on trained models:
+The analysis pipeline (`run_analysis.py`) provides comprehensive model evaluation:
 
 ```bash
 python scripts/run_analysis.py [OPTIONS]
 ```
 
-Options:
-- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_1.pt")
-- `--num_samples N`: Number of trajectory samples (default: 50)
-- `--teacher_steps N`: Teacher timesteps (default: 50)
-- `--student_steps N`: Student timesteps (default: 50)
-- `--analysis_dir NAME`: Directory to save analysis results (default: "analysis")
-- `--focus_size_range "0.1-0.5"`: Focus on specific size range (default: all sizes)
-- `--compare_specific_sizes "0.1,0.5,1.0"`: Compare specific sizes (default: all sizes)
+Analysis Types:
+- `--mse`: Mean Squared Error analysis between teacher and students
+- `--denoising`: Denoising process visualization and comparison
+- `--time`: Time-dependent performance analysis
+- `--trajectory`: Trajectory analysis of the diffusion process
+- `--all`: Run all available analyses
 
-Skip specific analysis modules:
-- `--skip_metrics`: Skip trajectory metrics analysis (default: run this analysis)
-- `--skip_dimensionality`: Skip dimensionality reduction analysis (default: run this analysis)
-- `--skip_noise`: Skip noise prediction analysis (default: run this analysis)
-- `--skip_attention`: Skip attention map analysis (default: run this analysis)
-- `--skip_3d`: Skip 3D visualization (default: run this analysis)
-- `--skip_fid`: Skip FID calculation (default: run this analysis)
+Configuration Options:
+- `--batch-size N`: Batch size for loading test data (default: 4)
+- `--num-samples N`: Number of samples to use for analysis (default: 5)
+- `--cpu`: Force CPU usage for analysis
+- `--full-mse`: Run comprehensive MSE analysis with all model sizes
+- `--verbose`: Print detailed error messages and debugging info
+
+Features:
+- **Automated Device Selection**: CUDA/CPU with manual override
+- **Comprehensive Metrics**: MSE, trajectory similarity, time analysis
+- **Visualization**: Automated generation of plots and heatmaps
+- **Error Handling**: Robust error reporting and recovery
+- **Flexible Analysis**: Support for partial or complete analysis runs
 
 ### CPU Mode
 
-Force any script to run on CPU (useful for systems without GPU):
+For systems without GPU or for debugging, force CPU usage:
 
 ```bash
-python scripts/run_on_cpu.py SCRIPT [--args "SCRIPT_ARGS"]
+python scripts/run_analysis.py --cpu [OTHER_OPTIONS]
 ```
 
-Examples:
-```bash
-python scripts/run_on_cpu.py train_teacher
-python scripts/run_on_cpu.py train_students --args "--custom_size_factors 0.1,0.5"
-python scripts/run_on_cpu.py run_analysis --args "--num_samples 5 --skip_fid"
-```
+All scripts support CPU execution, with automatic optimization for CPU-based processing.
 
 ### Testing
 
@@ -184,42 +209,26 @@ The project uses a centralized configuration system in `config/config.py`:
 from config.config import Config
 
 config = Config()
-config.create_directories()  # Creates all necessary directories
 
-# Access paths
-models_dir = config.models_dir
-results_dir = config.results_dir
+# Key Configuration Parameters
+config.teacher_image_size = 512      # Teacher model image size
+config.student_image_size = 256      # Base student model image size
+config.timesteps = 50               # Number of diffusion timesteps
+config.student_steps = 50           # Student model timesteps
+config.batch_size = 8               # Training batch size
+config.epochs = 15                  # Number of training epochs (recommended: 15-20 for teacher)
+
+# Model Architecture
+config.channels = 3                 # Number of image channels (RGB)
+config.base_channels = 64           # Base number of model channels
+config.student_size_factors = [0.2, 0.4, 0.5, 0.6, 0.8, 1.0]  # Model size factors
+
+# Training Parameters
+config.lr = 1e-4                   # Learning rate
+config.save_interval = 5           # Checkpoint save interval
+config.early_stopping_patience = 10 # Stop if no improvement for 10 epochs
+
+# Analysis Settings
+config.num_samples = 5             # Number of samples for analysis
+config.mse_size_factors_limit = False  # Use all size factors for MSE
 ```
-
-## 📊 Analysis Outputs
-
-All analysis results are organized in the `output/analysis/` directory:
-
-- **Trajectory Metrics** (`metrics/`): Path length, Wasserstein distance, endpoint distance
-- **Comparative Visualizations** (`visualization/`): Plots showing metrics vs model size
-- **FID Scores** (`fid/`): Fréchet Inception Distance measurements
-- **Dimensionality Reduction** (`dimensionality/`): PCA, t-SNE, and UMAP projections
-- **Attention Analysis** (`attention/`): Attention map visualizations
-- **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
-
-## ❓ Troubleshooting
-
-Common issues:
-- **GPU not detected**: Use `scripts/run_on_cpu.py` to force CPU usage
-- **Model not found**: Check paths in `config.py` and ensure models are trained
-- **Memory errors**: Reduce batch size or number of samples
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## 📝 Citation
-
-If you use this toolkit in your research, please cite:
-
-```bibtex
-@misc{diffusion_analysis_toolkit,
-  title={Diffusion Model Analysis Toolkit},
-  author={Your Name},
-  year={2024}
-}

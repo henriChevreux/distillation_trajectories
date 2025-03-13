@@ -24,46 +24,8 @@ from utils.diffusion import get_diffusion_params, p_losses, p_sample_loop
 from data.dataset import get_data_loader
 
 def train_teacher(config):
-    """
-    Train the teacher diffusion model
-    
-    Args:
-        config: Configuration object
-        
-    Returns:
-        Trained teacher model
-    """
-    # Verify dataset exists
-    try:
-        print("Checking dataset availability...")
-        test_loader = get_data_loader(config, image_size=64)  # Small batch for testing
-        next(iter(test_loader))
-        print("Dataset check passed!")
-    except Exception as e:
-        print(f"Error loading dataset: {e}")
-        print("Please ensure the LSUN dataset is downloaded and accessible")
-        return None
-
-    # Memory check with a small batch
-    try:
-        print("\nPerforming memory check...")
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        test_model = SimpleUNet(config).to(device)
-        test_batch = torch.randn(4, config.channels, config.teacher_image_size, config.teacher_image_size).to(device)
-        test_t = torch.zeros(4).to(device)
-        _ = test_model(test_batch, test_t)
-        del test_model, test_batch, test_t
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        print("Memory check passed!")
-    except RuntimeError as e:
-        if "out of memory" in str(e):
-            print(f"Not enough GPU memory. Try reducing batch_size (currently {config.batch_size})")
-            return None
-        else:
-            raise e
-
-    # Determine device
+    """Train the teacher diffusion model with improved optimization"""
+    # Device setup
     device = torch.device(
         "cuda" if torch.cuda.is_available() else 
         "mps" if torch.backends.mps.is_available() and config.mps_enabled else
@@ -76,20 +38,39 @@ def train_teacher(config):
     
     # Initialize model
     model = SimpleUNet(config).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=config.lr)
+    
+    # Optimizer with gradient clipping
+    optimizer = optim.AdamW(model.parameters(), lr=config.lr, weight_decay=0.01)
+    
+    # Cosine learning rate scheduler
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=config.epochs,
+        eta_min=config.lr * 0.01
+    )
     
     # Get data loader
     train_loader = get_data_loader(config)
+    print(f"Using {len(train_loader.dataset)} training samples")
+    
+    # Variables to track best model
+    best_loss = float('inf')
+    best_epoch = -1
+    epochs_without_improvement = 0
+    running_loss = []
     
     # Training loop
     for epoch in range(config.epochs):
         model.train()
         total_loss = 0
+        num_batches = 0
         
-        progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{config.epochs}',
-                           leave=config.progress_bar_leave, 
-                           ncols=config.progress_bar_ncols, 
-                           position=config.progress_bar_position)
+        progress_bar = tqdm(train_loader, 
+                          desc=f'Epoch {epoch+1}/{config.epochs}',
+                          leave=config.progress_bar_leave,
+                          ncols=config.progress_bar_ncols,
+                          position=config.progress_bar_position)
+        
         for batch_idx, (images, _) in enumerate(progress_bar):
             images = images.to(device)
             optimizer.zero_grad()
@@ -100,27 +81,66 @@ def train_teacher(config):
             # Calculate loss
             loss = p_losses(model, images, t, diffusion_params)
             loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             
-            # Update progress bar
+            # Update progress
             total_loss += loss.item()
-            progress_bar.set_postfix(loss=total_loss/(batch_idx+1))
-        
-        # Save model periodically
-        if (epoch + 1) % config.save_interval == 0 or epoch == config.epochs - 1:
-            torch.save(model.state_dict(), os.path.join(config.teacher_models_dir, f'model_epoch_{epoch+1}.pt'))
+            num_batches += 1
+            running_loss.append(loss.item())
+            if len(running_loss) > 100:
+                running_loss.pop(0)
             
-            # Generate some samples
+            # Update progress bar with running statistics
+            progress_bar.set_postfix({
+                'loss': total_loss/num_batches,
+                'running_loss': sum(running_loss)/len(running_loss),
+                'lr': optimizer.param_groups[0]['lr']
+            })
+        
+        # Step the learning rate scheduler
+        scheduler.step()
+        
+        # Calculate average loss
+        avg_loss = total_loss / num_batches
+        print(f"\nEpoch {epoch+1} - Average Loss: {avg_loss:.6f}")
+        
+        # Model evaluation and checkpointing
+        if avg_loss < best_loss:
+            improvement = best_loss - avg_loss
+            best_loss = avg_loss
+            best_epoch = epoch
+            epochs_without_improvement = 0
+            
+            # Save best model
+            best_model_path = os.path.join(config.teacher_models_dir, 'model_best.pt')
+            if os.path.exists(best_model_path):
+                os.remove(best_model_path)
+            
+            print(f"New best model (loss: {best_loss:.6f}, improvement: {improvement:.6f})")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'loss': best_loss,
+            }, best_model_path)
+            
+            # Generate and save samples
             model.eval()
-            samples = p_sample_loop(
-                model=model,
-                shape=(config.num_samples_to_generate, config.channels, config.image_size, config.image_size),
-                timesteps=config.timesteps,
-                diffusion_params=diffusion_params,
-                device=device,
-                config=config,  # Pass the config parameter here
-                track_trajectory=False
-            )
+            with torch.no_grad():
+                samples = p_sample_loop(
+                    model=model,
+                    shape=(config.num_samples_to_generate, config.channels, 
+                          config.image_size, config.image_size),
+                    timesteps=config.timesteps,
+                    diffusion_params=diffusion_params,
+                    device=device,
+                    config=config
+                )
             
             # Save samples
             grid = (samples + 1) / 2
@@ -129,8 +149,28 @@ def train_teacher(config):
             plt.figure(figsize=config.samples_figure_size)
             plt.imshow(grid.permute(1, 2, 0).cpu())
             plt.axis('off')
-            plt.savefig(os.path.join(config.results_dir, f'samples_epoch_{epoch+1}.png'))
+            plt.savefig(os.path.join(config.results_dir, 'samples_best.png'))
             plt.close()
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs (best loss: {best_loss:.6f})")
+            
+            if epochs_without_improvement >= config.early_stopping_patience:
+                print(f"\nStopping early - No improvement for {epochs_without_improvement} epochs")
+                break
+    
+    print(f"\nTraining completed. Best model was from epoch {best_epoch+1} with loss {best_loss:.6f}")
+    
+    # Save final state
+    final_model_path = os.path.join(config.teacher_models_dir, 'model_final.pt')
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'loss': avg_loss,
+    }, final_model_path)
+    print(f"Final model saved to: {final_model_path}")
     
     return model
 

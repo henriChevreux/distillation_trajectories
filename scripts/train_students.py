@@ -286,16 +286,16 @@ def train_students(config, custom_size_factors=None):
         else:
             raise e
     
-    # Check if teacher model exists - try both new and old paths for backward compatibility
-    teacher_model_path = os.path.join(config.teacher_models_dir, 'model_epoch_1.pt')
-    old_teacher_model_path = os.path.join(config.models_dir, 'model_epoch_1.pt')
+    # Check if teacher model exists - try both best and final models
+    teacher_model_path = os.path.join(config.teacher_models_dir, 'model_best.pt')
+    final_teacher_model_path = os.path.join(config.teacher_models_dir, 'model_final.pt')
     
-    # Check new path first, then fall back to old path
+    # Check best model first, then fall back to final model
     if os.path.exists(teacher_model_path):
         print(f"Found teacher model at {teacher_model_path}")
-    elif os.path.exists(old_teacher_model_path):
-        print(f"Found teacher model at old location {old_teacher_model_path}")
-        teacher_model_path = old_teacher_model_path
+    elif os.path.exists(final_teacher_model_path):
+        print(f"Found final teacher model at {final_teacher_model_path}")
+        teacher_model_path = final_teacher_model_path
     else:
         print("\nERROR: Teacher model not found at", teacher_model_path)
         print("Please train the teacher model first by running:")
