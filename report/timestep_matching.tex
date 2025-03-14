@@ -1,0 +1,120 @@
+% Timestep Matching in Diffusion Model Distillation
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\title{Timestep Matching in Teacher-Student Diffusion Models}
+\author{Distillation Trajectories Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+In diffusion model distillation, ensuring that the student model learns the appropriate denoising behavior at each noise level is critical for preserving generation quality while reducing computational requirements. This document explains how we match timesteps between teacher and student models to ensure the student learns the correct denoising trajectory.
+
+\section{Timestep Correspondence}
+
+\subsection{The Matching Problem}
+
+When distilling a teacher diffusion model with $T_{teacher}$ timesteps to a student model with $T_{student}$ timesteps, we need to ensure that:
+
+\begin{enumerate}
+  \item Both models operate on equivalent noise levels at corresponding timesteps
+  \item The student learns to match the teacher's denoising behavior at each noise level
+  \item The trajectory through latent space follows a similar path
+\end{enumerate}
+
+\subsection{Our Approach}
+
+We implement timestep matching using a direct conversion function that maps teacher timesteps to equivalent student timesteps:
+
+\begin{equation}
+t_{student} = \lfloor t_{teacher} \cdot \frac{T_{student}}{T_{teacher}} \rfloor
+\end{equation}
+
+During training, we:
+\begin{enumerate}
+  \item Sample random timesteps $t_{teacher}$ from the teacher's full range $[0, T_{teacher})$
+  \item Convert these to student timesteps $t_{student}$ using the formula above
+  \item Apply noise to images according to the teacher's noise schedule at $t_{teacher}$
+  \item Have the student predict the denoising direction at the corresponding $t_{student}$
+  \item Train the student to match the teacher's prediction at these corresponding points
+\end{enumerate}
+
+\subsection{Special Case: Equal Timesteps}
+
+When $T_{student} = T_{teacher}$, the conversion simplifies to:
+
+\begin{equation}
+t_{student} = t_{teacher}
+\end{equation}
+
+This provides the most direct comparison, as both models operate on identical absolute timestep values, ensuring perfect alignment of noise levels and denoising behavior.
+
+\section{Implementation Details}
+
+In our implementation, the timestep conversion is defined as:
+
+\begin{algorithm}[H]
+\begin{algorithmic}
+\STATE $\texttt{convert\_t} = \lambda \texttt{ t\_teacher}: \lfloor\texttt{t\_teacher} \cdot \frac{\texttt{config.student\_steps}}{\texttt{config.teacher\_steps}}\rfloor$
+\end{algorithmic}
+\end{algorithm}
+
+Then for each training batch:
+
+\begin{algorithm}[H]
+\begin{algorithmic}
+\STATE Sample $\texttt{t\_teacher} \sim \text{Uniform}(0, \texttt{config.teacher\_steps})$
+\STATE $\texttt{t\_student} = \texttt{convert\_t}(\texttt{t\_teacher})$
+\STATE Create noisy images $\texttt{x\_noisy}$ using $\texttt{t\_teacher}$ and teacher's noise schedule
+\STATE Get teacher prediction $\texttt{teacher\_pred} = \texttt{teacher\_model}(\texttt{x\_noisy}, \texttt{t\_teacher})$
+\STATE Get student prediction $\texttt{student\_pred} = \texttt{student\_model}(\texttt{x\_noisy}, \texttt{t\_student})$
+\STATE Calculate loss $\texttt{loss} = \texttt{MSE}(\texttt{student\_pred}, \texttt{teacher\_pred})$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Pure Trajectory Matching}
+
+Our implementation focuses exclusively on trajectory matching with a single loss objective:
+
+\begin{equation}
+\mathcal{L} = \text{MSE}(\text{student\_pred}, \text{teacher\_pred})
+\end{equation}
+
+Unlike some distillation approaches that include additional loss terms (such as comparing to ground truth noise), we intentionally use only the teacher-student matching loss. This ensures the student learns to precisely follow the teacher's trajectory without any competing objectives. By focusing on pure imitation of the teacher model at each sampled timestep, the student can more faithfully reproduce the teacher's overall trajectory through the diffusion process.
+
+\section{Advantages of This Approach}
+
+This timestep matching methodology offers several benefits:
+
+\begin{itemize}
+  \item \textbf{Noise Level Consistency}: The student learns to denoise at the same noise levels as the teacher
+  \item \textbf{Trajectory Preservation}: The denoising path through latent space is preserved
+  \item \textbf{Knowledge Transfer}: The student effectively learns the teacher's denoising behavior
+  \item \textbf{Flexible Scaling}: Works for any ratio of teacher to student timesteps
+\end{itemize}
+
+\section{Limitations and Considerations}
+
+When $T_{student} < T_{teacher}$, some approximation error is introduced:
+
+\begin{itemize}
+  \item The floor operation in the conversion can lead to uneven sampling of student timesteps
+  \item Some student timesteps may be represented more frequently than others in training
+  \item When the ratio $\frac{T_{student}}{T_{teacher}}$ is not an integer, rounding errors accumulate
+\end{itemize}
+
+\section{Conclusion}
+
+Our timestep matching approach ensures that the student model learns to follow the same denoising trajectory as the teacher model, even when using fewer diffusion steps. For applications requiring the most precise trajectory matching, setting $T_{student} = T_{teacher}$ provides the optimal solution by eliminating conversion approximation errors while still benefiting from architectural efficiency gains.
+
+\end{document} 

@@ -165,19 +165,8 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             # MSE loss between student and teacher predictions
             loss = F.mse_loss(student_pred, teacher_pred)
             
-            # Also add some loss against the true noise to maintain diversity
-            # Ensure student prediction has the same size as noise
-            if student_pred.shape != noise.shape:
-                # Resize student prediction to match noise
-                student_pred_for_noise = F.interpolate(
-                    student_pred, 
-                    size=(noise.shape[2], noise.shape[3]),
-                    mode='bilinear', 
-                    align_corners=True
-                )
-                loss += config.noise_diversity_weight * F.mse_loss(student_pred_for_noise, noise)
-            else:
-                loss += config.noise_diversity_weight * F.mse_loss(student_pred, noise)
+            # Remove the diversity loss that compares with true noise
+            # We want to focus solely on matching the teacher's trajectory
             
             loss.backward()
             optimizer.step()

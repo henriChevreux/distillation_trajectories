@@ -1,0 +1,89 @@
+% Training Methodology Update
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\title{Training Methodology Update: Pure Trajectory Matching}
+\author{Distillation Trajectories Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This document outlines an important update to our training methodology for student diffusion models. We have modified our approach to focus exclusively on trajectory matching between teacher and student models, removing secondary objectives that could potentially interfere with this primary goal.
+
+\section{Previous Methodology}
+
+In our previous implementation, student models were trained with a combined loss function consisting of two components:
+
+\begin{enumerate}
+  \item \textbf{Teacher Matching Loss}: MSE between teacher and student predictions at corresponding timesteps
+  \item \textbf{Diversity Loss}: MSE between student predictions and true noise, weighted by a factor of 0.1
+\end{enumerate}
+
+The total loss was calculated as:
+
+\begin{equation}
+\mathcal{L}_{\text{previous}} = \text{MSE}(\text{student\_pred}, \text{teacher\_pred}) + 0.1 \cdot \text{MSE}(\text{student\_pred}, \text{noise})
+\end{equation}
+
+\section{Updated Methodology}
+
+Our updated training approach removes the diversity loss component, focusing solely on matching the teacher's trajectory:
+
+\begin{equation}
+\mathcal{L}_{\text{updated}} = \text{MSE}(\text{student\_pred}, \text{teacher\_pred})
+\end{equation}
+
+\section{Rationale for the Change}
+
+This methodological change was motivated by several considerations:
+
+\begin{enumerate}
+  \item \textbf{Focus on Trajectory Fidelity}: Our primary research objective is to study how faithfully student models can reproduce teacher trajectories at different model sizes. The diversity loss introduced a competing objective that potentially diverted the student from perfectly matching the teacher's behavior.
+  
+  \item \textbf{Clean Experimental Design}: By removing the secondary loss term, we create a cleaner experimental setup where any differences in trajectories can be attributed solely to model capacity constraints rather than training objectives.
+  
+  \item \textbf{Consistency with Research Question}: Our key research question concerns the relationship between model size and trajectory matching ability. The updated methodology aligns more directly with this focus.
+  
+  \item \textbf{Fixed Teacher Model}: Since we're working with a fixed, pre-trained teacher model, we're specifically interested in how well the student can mimic this particular model, rather than potentially improving upon it through additional loss terms.
+\end{enumerate}
+
+\section{Implementation Update}
+
+The implementation change was straightforward, involving the removal of the diversity loss calculation from our training loop:
+
+\begin{lstlisting}[language=Python, frame=single]
+# Previous implementation
+loss = F.mse_loss(student_pred, teacher_pred)
+loss += config.noise_diversity_weight * F.mse_loss(student_pred, noise)
+
+# Updated implementation
+loss = F.mse_loss(student_pred, teacher_pred)
+\end{lstlisting}
+
+This simple change ensures that student models are trained with the singular focus of matching the teacher's trajectory as precisely as possible.
+
+\section{Expected Impact}
+
+We expect this methodological update to result in:
+
+\begin{itemize}
+  \item More precise trajectory matching between teacher and student models
+  \item Clearer relationship between model size and trajectory fidelity
+  \item More interpretable results when analyzing how trajectories vary with model capacity
+  \item Potentially faster convergence during training due to the simplified loss landscape
+\end{itemize}
+
+\section{Conclusion}
+
+This update represents an important refinement in our research methodology, aligning our training approach more directly with our research objectives. By focusing exclusively on trajectory matching, we create a more controlled experimental environment for studying the relationship between model size and the ability to reproduce complex diffusion trajectories.
+
+\end{document} 

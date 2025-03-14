@@ -1,0 +1,113 @@
+% UNet Architecture for CIFAR10 Diffusion Models
+% Author: Charles de Monchy
+
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+
+\title{UNet Architecture Specifications for CIFAR10 Diffusion Models}
+\author{Charles de Monchy}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This document specifies the UNet architecture and hyperparameters used in diffusion models for CIFAR10 image generation, with a focus on progressive distillation. The parameters described here are set as defaults in the codebase.
+
+\section{UNet Architecture Parameters}
+\subsection{Model Configuration}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Image size & 32 $\times$ 32 \\
+Number of input/output channels & 3 \\
+Base channels & 128 \\
+Channel multipliers & [1, 2, 2, 2] \\
+Number of residual blocks & 3 \\
+Dropout & 0.3 \\
+\bottomrule
+\end{tabular}
+\caption{UNet model configuration parameters}
+\label{tab:model_config}
+\end{table}
+
+\subsection{Diffusion Process Parameters}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Training diffusion steps & 4000 \\
+Sampling timesteps & 50 \\
+Noise schedule & cosine \\
+\bottomrule
+\end{tabular}
+\caption{Diffusion process parameters}
+\label{tab:diffusion_params}
+\end{table}
+
+\subsection{Training Configuration}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Learning rate & $1 \times 10^{-4}$ \\
+Batch size & 128 \\
+Optimizer & Adam ($\beta_1=0.8$, $\beta_2=0.999$) \\
+EMA rate & 0.9999 \\
+\bottomrule
+\end{tabular}
+\caption{Training configuration parameters}
+\label{tab:training_config}
+\end{table}
+
+\section{Progressive Distillation Parameters}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Teacher timesteps & 50 \\
+Student timesteps & 50 \\
+\bottomrule
+\end{tabular}
+\caption{Progressive distillation parameters}
+\label{tab:distillation_params}
+\end{table}
+
+\section{Diffusion Steps vs. Sampling Timesteps}
+It's important to distinguish between the full diffusion process steps and the sampling timesteps:
+
+\begin{itemize}
+\item \textbf{Diffusion Steps (4000):} The total number of noise addition steps used in the original diffusion process during training. This defines how finely the noise is added when going from a clean image to pure noise.
+
+\item \textbf{Sampling Timesteps (50):} The actual number of steps used during inference/sampling when generating images. Through progressive distillation, we can maintain quality while using far fewer timesteps for sampling than were used in the original diffusion process.
+\end{itemize}
+
+In our implementation, both teacher and student models use the same number of timesteps (50) during sampling, which ensures consistency in the distillation process.
+
+\section{Implementation Note}
+It is important to correctly handle channel dimensions in the decoder blocks, particularly when implementing skip connections. In our implementation, at each decoder level, we concatenate upsampled features (with dims[i] channels) with skip connections from the same encoder level (also with dims[i] channels), resulting in input channels of 2*dims[i]. For details on the correct implementation and a fix for a common error in calculating these dimensions, please refer to the dedicated document "UNet Decoder Implementation: Skip Connection Correction".
+
+\section{References}
+\begin{enumerate}
+\item Ho, J., Jain, A., \& Abbeel, P. (2020). Denoising diffusion probabilistic models. \textit{Advances in Neural Information Processing Systems}, 33, 6840-6851.
+\item Nichol, A. Q., \& Dhariwal, P. (2021). Improved denoising diffusion probabilistic models. \textit{International Conference on Machine Learning}, 8162-8171.
+\item Salimans, T., \& Ho, J. (2022). Progressive distillation for fast sampling of diffusion models. \textit{International Conference on Learning Representations}.
+\item Song, J., Meng, C., \& Ermon, S. (2020). Denoising diffusion implicit models. \textit{International Conference on Learning Representations}.
+\end{enumerate}
+
+\end{document} 

@@ -23,7 +23,7 @@ def plot_time_dependent_grid(time_distances_dict, config, save_dir=None):
     print("Plotting time-dependent grid...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "time_dependent")
+        save_dir = config.time_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -126,7 +126,7 @@ def plot_time_dependent_combined(time_distances_dict, config, save_dir=None):
     print("Plotting combined time-dependent visualization...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "time_dependent")
+        save_dir = config.time_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -240,3 +240,98 @@ def plot_time_dependent_combined(time_distances_dict, config, save_dir=None):
         # Save the plot
         plt.savefig(os.path.join(save_dir, "time_dependent_ratio.png"), dpi=300, bbox_inches='tight')
         plt.close() 
+
+def plot_trajectory_divergence_vs_timestep(all_metrics, config, save_dir=None):
+    """
+    Plot the trajectory divergence (MSE/Wasserstein distance) vs normalized timestep for all size factors
+    
+    Args:
+        all_metrics: Dictionary of metrics for different size factors
+        config: Configuration object
+        save_dir: Directory to save results
+        
+    Returns:
+        None
+    """
+    print("Plotting trajectory divergence (MSE) vs timestep...")
+    
+    if save_dir is None:
+        save_dir = config.time_dependent_dir
+    
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Check if we have any valid data
+    if not all_metrics:
+        print("  Warning: No trajectory data available. Skipping divergence plot.")
+        return
+    
+    # Filter out size factors with empty data
+    valid_size_factors = []
+    wasserstein_per_timestep = {}
+    
+    for size_factor, metrics in all_metrics.items():
+        if ('wasserstein_distances_per_timestep' in metrics and 
+            metrics['wasserstein_distances_per_timestep']):
+            valid_size_factors.append(size_factor)
+            
+            # Extract average Wasserstein distance per timestep
+            num_timesteps = len(metrics['wasserstein_distances_per_timestep'][0])
+            avg_wasserstein = [0] * num_timesteps
+            num_trajectories = len(metrics['wasserstein_distances_per_timestep'])
+            
+            for distances in metrics['wasserstein_distances_per_timestep']:
+                for t in range(num_timesteps):
+                    avg_wasserstein[t] += distances[t]
+            
+            # Compute average
+            avg_wasserstein = [d / num_trajectories for d in avg_wasserstein]
+            wasserstein_per_timestep[size_factor] = avg_wasserstein
+    
+    if not valid_size_factors:
+        print("  Warning: No valid trajectory divergence data available. Skipping plot.")
+        return
+    
+    # Sort size factors
+    valid_size_factors.sort()
+    
+    # Create the plot
+    plt.figure(figsize=(14, 10))
+    
+    # Define a sequential colormap based on size factor
+    cmap = plt.cm.viridis_r
+    norm = plt.Normalize(min(valid_size_factors), max(valid_size_factors))
+    
+    # Plot each size factor with appropriate color
+    for size_factor in valid_size_factors:
+        color = cmap(norm(size_factor))
+        plt.plot(
+            # Normalize timesteps to [0, 1]
+            np.linspace(0, 1, len(wasserstein_per_timestep[size_factor])),
+            wasserstein_per_timestep[size_factor],
+            label=f'Size {size_factor}',
+            color=color,
+            linewidth=2.5
+        )
+    
+    # Add title and labels
+    plt.title('Trajectory Divergence (MSE) vs Timestep', fontsize=16)
+    plt.xlabel('Normalized Timestep (0=start, 1=end)', fontsize=12)
+    plt.ylabel('Wasserstein Distance (MSE)', fontsize=12)
+    
+    # Add grid
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    # Add colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=plt.gca())
+    cbar.set_label('Student Model Size Factor', fontsize=12)
+    
+    # Add legend
+    plt.legend(loc='upper right')
+    
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, "trajectory_divergence_vs_timestep.png"), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"  Saved trajectory divergence vs timestep plot to {os.path.join(save_dir, 'trajectory_divergence_vs_timestep.png')}") 

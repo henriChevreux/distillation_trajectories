@@ -25,13 +25,42 @@ class TrajectoryManager:
         self.student_model = student_model
         self.config = config
         self.size_factor = size_factor
-        self.fixed_samples = fixed_samples
+        
+        # Ensure fixed samples have the correct format
+        if fixed_samples is not None:
+            self.fixed_samples = self._ensure_tensor_compatibility(fixed_samples)
+        else:
+            self.fixed_samples = None
         
         # Create trajectory directory if it doesn't exist
         os.makedirs(config.trajectory_dir, exist_ok=True)
         
         # Set device
         self.device = next(teacher_model.parameters()).device
+    
+    def _ensure_tensor_compatibility(self, tensor_or_batch):
+        """
+        Ensure tensor is in the correct format expected by diffusion models.
+        No longer reshapes tensors for older PyTorch versions.
+        
+        Args:
+            tensor_or_batch: A tensor or batch of tensors
+            
+        Returns:
+            Tensor with the correct format
+        """
+        if tensor_or_batch is None:
+            return None
+        
+        if not isinstance(tensor_or_batch, torch.Tensor):
+            print(f"Warning: Input is not a tensor but {type(tensor_or_batch)}")
+            return tensor_or_batch
+        
+        # Print shape for debugging
+        print(f"Tensor shape: {tensor_or_batch.shape}")
+        
+        # Return the tensor as-is without reshaping
+        return tensor_or_batch
     
     def generate_trajectory(self, seed=None):
         """
@@ -237,26 +266,34 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
-        # Use the provided sample as the starting point
+        # Move sample to device without reshaping
         x_teacher = sample.clone().to(self.device)
+        
+        # Log information about the sample
+        print(f"Sample shape for teacher: {x_teacher.shape}")
         
         # Generate teacher trajectory
         teacher_trajectory = []
-        with torch.no_grad():
-            for t in range(self.config.teacher_steps - 1, -1, -1):
-                t_tensor = torch.tensor([t], device=self.device)
-                
-                # Store current state
-                teacher_trajectory.append((x_teacher.clone(), t))
-                
-                # Predict noise
-                noise_pred = self.teacher_model(x_teacher, t_tensor)
-                
-                # Update x
-                if t > 0:
-                    # Sample noise for the next step
-                    noise = torch.randn_like(x_teacher)
-                    x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
+        try:
+            with torch.no_grad():
+                for t in range(self.config.teacher_steps - 1, -1, -1):
+                    t_tensor = torch.tensor([t], device=self.device)
+                    
+                    # Store current state
+                    teacher_trajectory.append((x_teacher.clone(), t))
+                    
+                    # Predict noise
+                    noise_pred = self.teacher_model(x_teacher, t_tensor)
+                    
+                    # Update x
+                    if t > 0:
+                        # Sample noise for the next step
+                        noise = torch.randn_like(x_teacher)
+                        x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
+        except Exception as e:
+            print(f"Error in teacher trajectory generation: {e}")
+            print(f"Teacher input tensor shape: {x_teacher.shape}")
+            raise
         
         # Reset to the same starting sample for student
         if seed is not None:
@@ -270,32 +307,45 @@ class TrajectoryManager:
         
         # Resize the sample if needed for the student model
         if student_image_size != self.config.image_size:
-            x_student = torch.nn.functional.interpolate(
-                sample.clone(),
-                size=(student_image_size, student_image_size),
-                mode='bilinear',
-                align_corners=True
-            ).to(self.device)
+            try:
+                x_student = torch.nn.functional.interpolate(
+                    sample.clone(),
+                    size=(student_image_size, student_image_size),
+                    mode='bilinear',
+                    align_corners=True
+                ).to(self.device)
+            except Exception as e:
+                print(f"Error resizing sample for student model: {e}")
+                print(f"Sample shape: {sample.shape}, Target size: {student_image_size}")
+                raise
         else:
             x_student = sample.clone().to(self.device)
         
+        # Log information about the sample for the student
+        print(f"Sample shape for student: {x_student.shape}")
+        
         # Generate student trajectory
         student_trajectory = []
-        with torch.no_grad():
-            for t in range(self.config.student_steps - 1, -1, -1):
-                t_tensor = torch.tensor([t], device=self.device)
-                
-                # Store current state
-                student_trajectory.append((x_student.clone(), t))
-                
-                # Predict noise
-                noise_pred = self.student_model(x_student, t_tensor)
-                
-                # Update x
-                if t > 0:
-                    # Sample noise for the next step
-                    noise = torch.randn_like(x_student)
-                    x_student = self._update_x(x_student, noise_pred, t, noise)
+        try:
+            with torch.no_grad():
+                for t in range(self.config.student_steps - 1, -1, -1):
+                    t_tensor = torch.tensor([t], device=self.device)
+                    
+                    # Store current state
+                    student_trajectory.append((x_student.clone(), t))
+                    
+                    # Predict noise
+                    noise_pred = self.student_model(x_student, t_tensor)
+                    
+                    # Update x
+                    if t > 0:
+                        # Sample noise for the next step
+                        noise = torch.randn_like(x_student)
+                        x_student = self._update_x(x_student, noise_pred, t, noise)
+        except Exception as e:
+            print(f"Error in student trajectory generation: {e}")
+            print(f"Student input tensor shape: {x_student.shape}")
+            raise
         
         # Resize student trajectory images to match teacher size if needed
         if student_image_size != self.config.image_size:
@@ -380,8 +430,9 @@ class TrajectoryManager:
         # Sort by sample index
         trajectory_files.sort(key=lambda x: int(x.split("_sample_")[1].split(".")[0]))
         
-        # Initialize metrics
+        # Initialize metrics with our new metrics
         all_metrics = {
+            # Original metrics
             'wasserstein_distances': [],
             'wasserstein_distances_per_timestep': [],
             'endpoint_distances': [],
@@ -389,6 +440,15 @@ class TrajectoryManager:
             'student_path_lengths': [],
             'teacher_efficiency': [],
             'student_efficiency': [],
+            
+            # New metrics
+            'path_length_similarity': [],
+            'efficiency_similarity': [],
+            'mean_velocity_similarity': [],
+            'mean_directional_consistency': [],
+            'mean_position_difference': [],
+            'distribution_similarity': [],
+            
             'architecture_type': []
         }
         
@@ -413,7 +473,7 @@ class TrajectoryManager:
                 # Compute metrics for this trajectory pair
                 metrics = compute_trajectory_metrics(t_traj, s_traj, self.config)
                 
-                # Add to aggregated metrics
+                # Add original metrics
                 all_metrics['wasserstein_distances'].append(metrics['mean_wasserstein'])
                 all_metrics['wasserstein_distances_per_timestep'].append(metrics['wasserstein_distances'])
                 all_metrics['endpoint_distances'].append(metrics['endpoint_distance'])
@@ -422,14 +482,44 @@ class TrajectoryManager:
                 all_metrics['teacher_efficiency'].append(metrics['teacher_efficiency'])
                 all_metrics['student_efficiency'].append(metrics['student_efficiency'])
                 
+                # Add new metrics
+                if 'path_length_similarity' in metrics:
+                    all_metrics['path_length_similarity'].append(metrics['path_length_similarity'])
+                
+                if 'efficiency_similarity' in metrics:
+                    all_metrics['efficiency_similarity'].append(metrics['efficiency_similarity'])
+                
+                if 'mean_velocity_similarity' in metrics:
+                    all_metrics['mean_velocity_similarity'].append(metrics['mean_velocity_similarity'])
+                
+                if 'mean_directional_consistency' in metrics:
+                    all_metrics['mean_directional_consistency'].append(metrics['mean_directional_consistency'])
+                
+                if 'mean_position_difference' in metrics:
+                    all_metrics['mean_position_difference'].append(metrics['mean_position_difference'])
+                
+                if 'distribution_similarity' in metrics:
+                    all_metrics['distribution_similarity'].append(metrics['distribution_similarity'])
+                
                 # Add architecture type if available
                 if hasattr(self, 'architecture_type'):
                     all_metrics['architecture_type'].append(self.architecture_type)
         
         # Compute averages for scalar metrics
-        for key in ['endpoint_distances', 'teacher_path_lengths', 'student_path_lengths', 'teacher_efficiency', 'student_efficiency', 'wasserstein_distances']:
+        # Include all original metrics for backward compatibility
+        for key in ['endpoint_distances', 'teacher_path_lengths', 'student_path_lengths', 
+                   'teacher_efficiency', 'student_efficiency', 'wasserstein_distances']:
             if key in all_metrics and all_metrics[key]:
                 all_metrics[key + '_avg'] = sum(all_metrics[key]) / len(all_metrics[key])
+        
+        # Compute averages for new metrics
+        for key in ['path_length_similarity', 'efficiency_similarity', 'mean_velocity_similarity', 
+                   'mean_directional_consistency', 'mean_position_difference', 'distribution_similarity']:
+            if key in all_metrics and all_metrics[key]:
+                all_metrics[key + '_avg'] = sum(all_metrics[key]) / len(all_metrics[key])
+                # Also save with simpler names for compatibility with radar plots
+                if key + '_avg' not in all_metrics:
+                    all_metrics[key] = all_metrics[key + '_avg']
         
         return all_metrics
 
@@ -448,7 +538,7 @@ def generate_trajectories_with_disk_storage(teacher_model, student_model, config
     Returns:
         trajectory_manager: TrajectoryManager object
     """
-    # Create trajectory manager
+    # Create trajectory manager without reshaping tensors
     trajectory_manager = TrajectoryManager(teacher_model, student_model, config, size_factor, fixed_samples)
     
     # Check if trajectories already exist

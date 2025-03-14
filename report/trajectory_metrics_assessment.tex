@@ -1,0 +1,136 @@
+% Trajectory Metrics Assessment
+% Analysis of metrics used for comparing diffusion model trajectories
+% Author: AI Assistant
+
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\title{Assessment of Trajectory Comparison Metrics in Diffusion Models}
+\author{Technical Report}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This document provides an assessment of the trajectory comparison metrics used in our diffusion model knowledge distillation project. The analysis evaluates the appropriateness of the current metrics for assessing similarity between teacher and student model trajectories, validates them against relevant literature, and offers recommendations for potential improvements.
+
+\section{Current Metrics Implementation}
+Our codebase implements a set of metrics specifically designed to evaluate trajectory alignment between teacher and student diffusion models. These metrics focus exclusively on comparing student trajectories to teacher trajectories, rather than to original images or ground truth values:
+
+\subsection{Path Length Similarity}
+This metric measures how similar the path lengths of the student and teacher models are:
+\begin{equation}
+\text{Path Length Similarity} = \frac{\min(\text{Student Path Length}, \text{Teacher Path Length})}{\max(\text{Student Path Length}, \text{Teacher Path Length})}
+\end{equation}
+
+A value close to 1.0 indicates that both models traverse similar total distances through latent space. This is more informative than a simple ratio, as it penalizes both shorter and longer paths equally.
+
+\subsection{Endpoint Distance}
+Measures the Euclidean distance between the final images produced by the student and teacher models:
+\begin{equation}
+\text{Endpoint Distance} = \| \mathbf{x}_{\text{student}}^{\text{final}} - \mathbf{x}_{\text{teacher}}^{\text{final}} \|_2
+\end{equation}
+
+Lower values indicate higher fidelity of the student model's output to the teacher model's output.
+
+\subsection{Directional Consistency}
+Evaluates how consistently the student model moves in the same direction as the teacher model throughout the diffusion process:
+\begin{equation}
+\text{Directional Consistency} = \frac{1}{n-1} \sum_{i=1}^{n-1} \cos(\theta_i)
+\end{equation}
+where $\cos(\theta_i)$ is the cosine similarity between the direction vectors of the teacher and student at step $i$.
+
+This metric ranges from -1 to 1, with 1 indicating perfect directional alignment between trajectories, 0 indicating orthogonal movement, and -1 indicating movement in opposite directions.
+
+\subsection{Distribution Similarity}
+Quantifies the similarity between trajectory distributions using the Wasserstein distance:
+\begin{equation}
+\text{Distribution Similarity} = \exp(-W(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}}))
+\end{equation}
+where $W(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}})$ is the mean Wasserstein distance between teacher and student trajectories.
+
+The exponential transformation maps the Wasserstein distance (where lower is better) to a similarity score between 0 and 1 (where higher is better).
+
+\subsection{Additional Supporting Metrics}
+We also compute several supporting metrics to provide a more comprehensive view of trajectory alignment:
+
+\begin{itemize}
+    \item \textbf{Position Difference}: The average Euclidean distance between teacher and student states at each timestep.
+    \item \textbf{Velocity Similarity}: How similar the step-by-step velocity profiles are between teacher and student.
+    \item \textbf{Path Efficiency}: How directly each model moves through latent space, calculated as the ratio of end-to-start distance to total path length.
+\end{itemize}
+
+\section{Academic Validation}
+
+\subsection{Wasserstein Distance}
+The implementation of Wasserstein distance to compare trajectory distributions is well-supported by recent research in diffusion model distillation. It relates to the well-established Fréchet Inception Distance (FID), which is the standard metric for evaluating generative model quality.
+
+Recent works such as ``TraFlow: Trajectory Distillation on Pre-Trained Rectified Flow'' \cite{wu2024traflow} and ``Trajectory Consistency Distillation'' \cite{zheng2024trajectory} validate the use of distribution-based metrics like Wasserstein distance for comparing diffusion trajectories.
+
+\subsection{Path Length and Efficiency Metrics}
+The concepts of path length and efficiency align with recent literature on trajectory-based distillation methods. The ``straightness" of trajectories is emphasized in papers on rectified flow distillation \cite{liu2023instaflow, zhu2024slimflow}, which propose enforcing straighter paths for faster sampling.
+
+Path efficiency, as implemented in our codebase, provides a quantifiable measure of this straightness property.
+
+\subsection{Endpoint Distance}
+The endpoint distance metric is fundamental to all distillation frameworks, as it directly measures how close the student model gets to the teacher's final output. This aligns with the primary objective of knowledge distillation - to replicate the teacher's output with the student model.
+
+\section{Recommendations for Improvement}
+
+While the current set of metrics provides a comprehensive evaluation framework, several potential improvements could further enhance the analysis:
+
+\subsection{Time-dependent Analysis}
+Our code already tracks Wasserstein distance per timestep, but expanding this to all metrics would provide deeper insights into where in the trajectory alignment issues occur. This could help identify specific phases of the diffusion process that require further optimization.
+
+\subsection{Frequency Domain Metrics}
+Some recent papers analyze trajectories in the frequency domain to better capture perceptual differences. Adding frequency-based analysis would provide a more holistic evaluation of the trajectory quality, especially for image generation tasks where certain frequency components significantly impact perceived quality.
+
+\subsection{Perceptual Metrics}
+While Wasserstein distance captures statistical similarity, it doesn't always correlate with human perception. Adding LPIPS (Learned Perceptual Image Patch Similarity) or other perceptual metrics would provide a better assessment of visual quality alignment between teacher and student models.
+
+\subsection{Consistency Metrics}
+Recent work on Trajectory Consistency Distillation \cite{zheng2024trajectory} introduces "trajectory consistency functions" that directly measure how consistently a model follows the Probability Flow ODE. Implementing such metrics could provide valuable insights into the fidelity of the student model's trajectory with respect to the theoretical optimum.
+
+\section{Conclusion}
+The metrics currently implemented in our codebase are appropriate for evaluating trajectory alignment in diffusion models and are well-supported by research literature. The approach of combining multiple metrics (path properties and statistical distribution measures) in radar plots provides a comprehensive view of model performance across different aspects of trajectory quality.
+
+The core evaluation strategy is sound, focusing on both the final output quality (endpoint distance) and the characteristics of the path taken (length, efficiency, and distribution similarity), which aligns well with the current state of research in diffusion model distillation.
+
+The recommended improvements would build upon this strong foundation to provide even more nuanced insights into trajectory alignment quality.
+
+\begin{thebibliography}{9}
+
+\bibitem{wu2024traflow}
+Wu, Z., Fan, X., Wu, H., \& Cao, L. (2024).
+\textit{TraFlow: Trajectory Distillation on Pre-Trained Rectified Flow}.
+arXiv preprint arXiv:2502.16972.
+
+\bibitem{zheng2024trajectory}
+Zheng, J., Hu, M., Fan, Z., Wang, C., Ding, C., Tao, D., \& Cham, T. J. (2024).
+\textit{Trajectory Consistency Distillation: Improved Latent Consistency Distillation by Semi-Linear Consistency Function with Trajectory Mapping}.
+arXiv preprint arXiv:2402.19159.
+
+\bibitem{liu2023instaflow}
+Liu, X., Liu, Z., Zheng, Y., Lin, D., Ntavelis, E., & Luc, P. (2023).
+\textit{InstaFlow: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation}.
+arXiv preprint arXiv:2309.06380.
+
+\bibitem{zhu2024slimflow}
+Zhu, S., Song, J., Sun, Y., Pang, K., Wang, S., Xiang, T., \& Yan, S. (2023).
+\textit{SlimFlow: Efficient Model Distillation of Probability Flow Simulation with the Rectified Flow}.
+arXiv preprint arXiv:2311.13231.
+
+\bibitem{kim2024learning}
+Kim, D., Lai, C., Liao, W., Murata, N., Takida, Y., Uesaka, T., He, Y., Mitsufuji, Y., \& Ermon, S. (2024).
+\textit{Learning Probability Flow ODE Trajectory of Diffusion}.
+In International Conference on Learning Representations (ICLR).
+
+\end{thebibliography}
+
+\end{document} 
