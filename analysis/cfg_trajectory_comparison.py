@@ -21,6 +21,16 @@ from config.config import Config
 from models import SimpleUNet, StudentUNet
 from utils.diffusion import get_diffusion_params
 
+def extract(a, t, x_shape):
+    """Extract coefficients at specified timesteps t"""
+    b, *_ = t.shape
+    
+    # Ensure t is within bounds
+    t = torch.clamp(t, 0, a.shape[0] - 1)
+    
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
 def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, seed=None):
     """
     Generate a trajectory using classifier-free guidance
@@ -44,10 +54,6 @@ def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, see
     
     # Get diffusion parameters
     diffusion_params = get_diffusion_params(timesteps)
-    
-    # Calculate alphas from betas
-    alphas = 1.0 - diffusion_params['betas']
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
     
     # Record the starting point
     trajectory.append(x.detach().cpu())
@@ -77,19 +83,29 @@ def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, see
             
             # Apply classifier-free guidance
             pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
-        
-        # Apply the prediction
-        alpha = alphas[i]
-        alpha_cumprod = alphas_cumprod[i]
-        beta = diffusion_params['betas'][i]
-        
-        # Only add noise if not at the final step
-        if i > 0:
-            noise = torch.randn_like(x)
-            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
-        else:
-            # For the final step, don't add noise to get a deterministic output
-            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred)
+            
+            # Get diffusion parameters for this timestep
+            betas_t = extract(diffusion_params['betas'], t, x.shape)
+            sqrt_one_minus_alphas_cumprod_t = extract(
+                diffusion_params['sqrt_one_minus_alphas_cumprod'], t, x.shape
+            )
+            sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
+            posterior_variance_t = extract(diffusion_params['posterior_variance'], t, x.shape)
+            
+            # Direction pointing to x_t
+            pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred
+            
+            # Random noise (only if not at final step)
+            if i > 0:
+                noise = torch.randn_like(x)
+                noise_scale = torch.sqrt(betas_t)
+            else:
+                # For the final step, use posterior variance and no noise
+                noise = torch.zeros_like(x)
+                noise_scale = torch.sqrt(posterior_variance_t)
+            
+            # Update x using the proper diffusion update step
+            x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
         
         # Record the current state
         trajectory.append(x.detach().cpu())
@@ -109,10 +125,6 @@ def generate_trajectory_without_cfg(model, noise, timesteps, device, seed=None):
     # Get diffusion parameters
     diffusion_params = get_diffusion_params(timesteps)
     
-    # Calculate alphas from betas
-    alphas = 1.0 - diffusion_params['betas']
-    alphas_cumprod = torch.cumprod(alphas, dim=0)
-    
     # Record the starting point
     trajectory.append(x.detach().cpu())
     
@@ -128,19 +140,29 @@ def generate_trajectory_without_cfg(model, noise, timesteps, device, seed=None):
         # Get prediction without conditioning
         with torch.no_grad():
             pred = model(x, t)
-        
-        # Apply the prediction
-        alpha = alphas[i]
-        alpha_cumprod = alphas_cumprod[i]
-        beta = diffusion_params['betas'][i]
-        
-        # Only add noise if not at the final step
-        if i > 0:
-            noise = torch.randn_like(x)
-            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
-        else:
-            # For the final step, don't add noise to get a deterministic output
-            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred)
+            
+            # Get diffusion parameters for this timestep
+            betas_t = extract(diffusion_params['betas'], t, x.shape)
+            sqrt_one_minus_alphas_cumprod_t = extract(
+                diffusion_params['sqrt_one_minus_alphas_cumprod'], t, x.shape
+            )
+            sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
+            posterior_variance_t = extract(diffusion_params['posterior_variance'], t, x.shape)
+            
+            # Direction pointing to x_t
+            pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred
+            
+            # Random noise (only if not at final step)
+            if i > 0:
+                noise = torch.randn_like(x)
+                noise_scale = torch.sqrt(betas_t)
+            else:
+                # For the final step, use posterior variance and no noise
+                noise = torch.zeros_like(x)
+                noise_scale = torch.sqrt(posterior_variance_t)
+            
+            # Update x using the proper diffusion update step
+            x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
         
         # Record the current state
         trajectory.append(x.detach().cpu())
@@ -298,10 +320,10 @@ def visualize_cfg_vs_no_cfg_final_images(teacher_trajectories, student_trajector
     
     for i, guidance_scale in enumerate(guidance_scales):
         # Get final images for this guidance scale
-        t_img_cfg = teacher_trajectories[guidance_scale][-1][0]
-        s_img_cfg = student_trajectories[guidance_scale][-1][0]
-        t_img_no_cfg = teacher_no_cfg_trajectories[guidance_scale][-1][0]
-        s_img_no_cfg = student_no_cfg_trajectories[guidance_scale][-1][0]
+        t_img_cfg = teacher_trajectories[guidance_scale][-1]  # Last image in trajectory
+        s_img_cfg = student_trajectories[guidance_scale][-1]  # Last image in trajectory
+        t_img_no_cfg = teacher_no_cfg_trajectories[guidance_scale][-1]  # Last image in trajectory
+        s_img_no_cfg = student_no_cfg_trajectories[guidance_scale][-1]  # Last image in trajectory
         
         # Convert tensors to numpy arrays with correct normalization
         def process_image(img):
