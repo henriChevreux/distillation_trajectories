@@ -29,6 +29,8 @@ def parse_args():
     # Model parameters
     parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
                         help='Path to teacher model relative to models directory')
+    parser.add_argument('--student_models', type=str, default=None,
+                        help='Comma-separated list of specific student model files (e.g., size_0.3/model_epoch_2.pt,size_1.0/model_epoch_2.pt)')
     parser.add_argument('--size_factors', type=str, default='0.3,1.0',
                         help='Comma-separated list of size factors to compare')
     parser.add_argument('--timesteps', type=int, default=50,
@@ -59,6 +61,14 @@ def main():
     # Parse size factors
     size_factors = [float(sf) for sf in args.size_factors.split(',')]
     
+    # Parse student models if provided
+    student_models = None
+    if args.student_models:
+        student_models = args.student_models.split(',')
+        if len(student_models) != len(size_factors):
+            print(f"ERROR: Number of student models ({len(student_models)}) must match number of size factors ({len(size_factors)})")
+            sys.exit(1)
+    
     # Load teacher model
     teacher_model_path = os.path.join(project_root, 'output', 'models', 'teacher', args.teacher_model)
     print(f"Loading teacher model from {teacher_model_path}")
@@ -78,16 +88,23 @@ def main():
     print(f"Teacher model dimensions: {teacher_model.dims}")
     
     # Process each size factor
-    for size_factor in size_factors:
+    for i, size_factor in enumerate(size_factors):
         print(f"\n{'='*80}")
         print(f"Processing size factor: {size_factor}")
         print(f"{'='*80}")
         
         # Load student model
-        student_model_path = os.path.join(
-            project_root, 'output', 'models', 'students', 
-            f'size_{size_factor}', args.teacher_model
-        )
+        if student_models:
+            # Use specific student model file if provided
+            student_model_path = os.path.join(
+                project_root, 'output', 'models', 'students', student_models[i]
+            )
+        else:
+            # Use default path with same filename as teacher model
+            student_model_path = os.path.join(
+                project_root, 'output', 'models', 'students', 
+                f'size_{size_factor}', args.teacher_model
+            )
         
         print(f"Loading student model from {student_model_path}")
         
