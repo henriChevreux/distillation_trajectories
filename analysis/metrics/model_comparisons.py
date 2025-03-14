@@ -14,14 +14,14 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
     Create a grid of radar plots to compare trajectory metrics across different model sizes.
     
     Each radar plot represents a specific model size and displays four key metrics:
-    - Path Length (top): How close the student's trajectory length is to the teacher's. 
+    - Path Length Similarity (top): How similar the student's trajectory length is to the teacher's. 
       Higher score = more similar length.
-    - Endpoint Distance (left): How close the student's final image is to the teacher's.
+    - Endpoint Alignment (left): How close the student's final image is to the teacher's.
       Higher score = closer final result.
-    - Path Efficiency (bottom): How directly the model moves through latent space.
-      Higher score = more efficient trajectory.
-    - Wasserstein Distance (right): Overall distribution similarity between trajectories.
-      Higher score = more similar distribution.
+    - Directional Consistency (bottom): How consistently the student follows the teacher's direction.
+      Higher score = more consistent directional alignment.
+    - Distribution Similarity (right): Overall similarity between student and teacher trajectories.
+      Higher score = more similar distributions throughout the trajectory.
     
     All metrics are normalized using min-max scaling to [0,1] where 1 is the best performance. 
     The filled area of each radar plot gives a visual indication of overall model performance - 
@@ -36,7 +36,7 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         Path to the saved radar plot grid image
     """
     if output_dir is None:
-        output_dir = os.path.join(config.output_dir, "model_comparisons")
+        output_dir = config.model_comparisons_dir
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -69,146 +69,90 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
     print(f"  Size factors after normalization: {size_factors}")
     
     # First, collect all metrics to find min and max values for min-max scaling
-    all_path_length_ratios = []
+    all_path_length_similarities = []
     all_endpoint_distances = []
-    all_efficiency_ratios = []
-    all_wasserstein_distances = []
+    all_directional_consistencies = []
+    all_distribution_similarities = []
     
     for size_factor in size_factors:
         metrics = metrics_by_size[size_factor]
         
         # Extract raw metric values
-        path_length_ratio = metrics.get('path_length_ratio', 1.0)
-        endpoint_distance = metrics.get('mean_endpoint_distance', 0.0)
-        efficiency_ratio = metrics.get('efficiency_ratio', 1.0)
-        wasserstein_distance = metrics.get('mean_wasserstein', 0.0)
+        path_length_similarity = metrics.get('path_length_similarity', 1.0)
+        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        directional_consistency = metrics.get('mean_directional_consistency', 0.0)
+        distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
-        all_path_length_ratios.append(path_length_ratio)
+        all_path_length_similarities.append(path_length_similarity)
         all_endpoint_distances.append(endpoint_distance)
-        all_efficiency_ratios.append(efficiency_ratio)
-        all_wasserstein_distances.append(wasserstein_distance)
+        all_directional_consistencies.append(directional_consistency)
+        all_distribution_similarities.append(distribution_similarity)
     
     # Calculate min and max for each metric
-    min_path_ratio = min(all_path_length_ratios)
-    max_path_ratio = max(all_path_length_ratios)
-    min_endpoint = min(all_endpoint_distances)
-    max_endpoint = max(all_endpoint_distances)
-    min_efficiency = min(all_efficiency_ratios)
-    max_efficiency = max(all_efficiency_ratios)
-    min_wasserstein = min(all_wasserstein_distances)
-    max_wasserstein = max(all_wasserstein_distances)
+    min_path_similarity = min(all_path_length_similarities) if all_path_length_similarities else 0.0
+    max_path_similarity = max(all_path_length_similarities) if all_path_length_similarities else 1.0
+    min_endpoint = min(all_endpoint_distances) if all_endpoint_distances else 0.0
+    max_endpoint = max(all_endpoint_distances) if all_endpoint_distances else 1.0
+    min_directional = min(all_directional_consistencies) if all_directional_consistencies else 0.0
+    max_directional = max(all_directional_consistencies) if all_directional_consistencies else 1.0
+    min_distribution = min(all_distribution_similarities) if all_distribution_similarities else 0.0
+    max_distribution = max(all_distribution_similarities) if all_distribution_similarities else 1.0
     
-    # Print ranges for debugging
-    print(f"  Value ranges for scaling:")
-    print(f"    Path Length Ratio: {min_path_ratio:.4f} to {max_path_ratio:.4f}")
-    print(f"    Endpoint Distance: {min_endpoint:.4f} to {max_endpoint:.4f}")
-    print(f"    Efficiency Ratio: {min_efficiency:.4f} to {max_efficiency:.4f}")
-    print(f"    Wasserstein Distance: {min_wasserstein:.4f} to {max_wasserstein:.4f}")
+    # Setup figure for the grid
+    n_cols = min(3, len(size_factors))
+    n_rows = int(np.ceil(len(size_factors) / n_cols))
     
-    # Get number of plots
-    n_plots = len(size_factors)
+    fig = plt.figure(figsize=(n_cols * 5, n_rows * 5))
+    gs = gridspec.GridSpec(n_rows, n_cols)
     
-    # Define grid layout
-    n_cols = 3  # 3 plots per row
-    n_rows = (n_plots + n_cols - 1) // n_cols  # Ceiling division
+    # Use a consistent set of colors for radar plots
+    # These colors should be distinguishable and visually pleasing
+    colors = plt.cm.tab10(np.linspace(0, 1, 10))
     
-    # Create figure for the grid
-    fig = plt.figure(figsize=(5*n_cols, 5*n_rows + 0.8), facecolor='white')  # Increased space for title
-    plt.rcParams['axes.facecolor'] = 'white'
-    
-    # Add a global title to the entire figure
-    fig.suptitle("Model Size Comparison - Trajectory Metrics", 
-                 fontsize=18, fontweight='bold', y=0.99)  # Moved higher
-    
-    # Add some padding between subplots
-    plt.subplots_adjust(wspace=0.4, hspace=0.6, top=0.92)  # Added top margin
-    
-    # Define the colormap for different size factors
-    # Use a blue to green to yellow color map similar to the reference
-    colors = {
-        0.1: (0.0, 0.0, 0.5),  # Dark blue
-        0.2: (0.0, 0.0, 0.8),  # Blue
-        0.3: (0.0, 0.2, 0.8),  # Blue-medium
-        0.4: (0.0, 0.5, 0.8),  # Teal blue
-        0.5: (0.0, 0.6, 0.6),  # Teal
-        0.6: (0.0, 0.7, 0.5),  # Teal-green
-        0.7: (0.0, 0.8, 0.3),  # Green
-        0.8: (0.4, 0.8, 0.2),  # Light green
-        0.9: (0.7, 0.8, 0.1),  # Yellow-green
-        1.0: (1.0, 0.9, 0.0),  # Yellow
-    }
-    
-    # Convert string color keys to floats for compatibility
-    colors_normalized = {}
-    for key, value in colors.items():
-        colors_normalized[float(key)] = value
-    colors = colors_normalized
+    # Set labels for radar chart axes
+    labels = ['Path Length\nSimilarity', 'Endpoint\nAlignment', 'Directional\nConsistency', 'Distribution\nSimilarity']
     
     # Setup axes for each radar plot
     for i, size_factor in enumerate(size_factors):
         metrics = metrics_by_size[size_factor]
         
-        # Get color based on size factor or use a default from the colormap
-        if size_factor in colors:
-            color = colors[size_factor]
+        # Get the raw metric values
+        path_length_similarity = metrics.get('path_length_similarity', 1.0)
+        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        directional_consistency = metrics.get('mean_directional_consistency', 0.0)
+        distribution_similarity = metrics.get('distribution_similarity', 0.0)
+        
+        # Normalize: path_length_similarity (higher is better)
+        # Already in [0,1], so we can use it directly
+        path_length_score = path_length_similarity
+        
+        # Normalize: endpoint_distance (lower is better)
+        # Convert to a score where 1.0 is best (lowest distance)
+        # Prevent division by zero
+        endpoint_range = max_endpoint - min_endpoint
+        if endpoint_range > 0:
+            endpoint_distance_score = 1.0 - ((endpoint_distance - min_endpoint) / endpoint_range)
         else:
-            # Fallback to viridis colormap if size_factor not in predefined colors
-            cmap = plt.cm.viridis
-            norm = plt.Normalize(min(size_factors), max(size_factors))
-            color = cmap(norm(size_factor))
+            endpoint_distance_score = 1.0
         
-        # Create subplot with white background
-        row = i // n_cols
-        col = i % n_cols
-        ax = plt.subplot(n_rows, n_cols, i+1, polar=True)
-        ax.set_facecolor('white')
+        # Normalize: directional_consistency (higher is better)
+        # Already in [-1,1], scale to [0,1] where 1 is best
+        directional_score = (directional_consistency + 1) / 2 if directional_consistency != float('nan') else 0.5
         
-        # Define the metrics to plot and their labels
-        # Match the label placement from the reference image
-        labels = ['Path Length Ratio', 'Endpoint Dist', 'Path Efficiency', 'Wasserstein']
-        
-        # Extract metrics and normalize them using proper scaling
-        path_length_ratio = metrics.get('path_length_ratio', 1.0)
-        endpoint_distance = metrics.get('mean_endpoint_distance', 0.0)
-        efficiency_ratio = metrics.get('efficiency_ratio', 1.0)
-        wasserstein_distance = metrics.get('mean_wasserstein', 0.0)
-        
-        # For path length ratio:
-        # Ideal value is 1.0. Score based on deviation from 1.0
-        # Use max_path_deviation = max(max_ratio - 1, 1 - min_ratio) as the worst possible deviation
-        max_path_deviation = max(max_path_ratio - 1.0, 1.0 - min_path_ratio) if min_path_ratio < 1.0 else max_path_ratio - 1.0
-        path_deviation = abs(path_length_ratio - 1.0)
-        # Ensure we don't divide by zero
-        max_path_deviation = max(0.001, max_path_deviation)
-        path_length_score = max(0.1, 1.0 - (path_deviation / max_path_deviation))
-        
-        # For endpoint distance:
-        # Ideal value is 0. Scale from 0 to max, with 0 being best (score=1.0)
-        # Ensure we don't divide by zero
-        max_endpoint = max(0.001, max_endpoint)
-        endpoint_distance_score = max(0.1, 1.0 - (endpoint_distance / max_endpoint))
-        
-        # For efficiency ratio:
-        # Ideal value is 1.0. Scale from 0 to 1, with 1 being best (score=1.0)
-        # Ensure we don't divide by zero
-        efficiency_score = max(0.1, efficiency_ratio / 1.0)
-        
-        # For Wasserstein distance:
-        # Ideal value is 0. Scale from 0 to max, with 0 being best (score=1.0)
-        # Ensure we don't divide by zero
-        max_wasserstein = max(0.001, max_wasserstein)
-        wasserstein_score = max(0.1, 1.0 - (wasserstein_distance / max_wasserstein))
+        # Normalize: distribution_similarity (higher is better)
+        # Already in [0,1], so we can use it directly
+        distribution_score = distribution_similarity
         
         # Combine the metrics into the order we want for the radar plot
-        # Order: Path Length (top), Endpoint Dist (left), Path Efficiency (bottom), Wasserstein (right)
-        values = [path_length_score, endpoint_distance_score, efficiency_score, wasserstein_score]
+        # Order: Path Length (top), Endpoint Dist (left), Directional Consistency (bottom), Distribution Similarity (right)
+        values = [path_length_score, endpoint_distance_score, directional_score, distribution_score]
         
         # Print diagnostic information to verify metric values
         print(f"  Size {size_factor} metrics:")
-        print(f"    Path Length Ratio: {path_length_ratio:.4f} → Score: {path_length_score:.4f}")
+        print(f"    Path Length Similarity: {path_length_similarity:.4f} → Score: {path_length_score:.4f}")
         print(f"    Endpoint Distance: {endpoint_distance:.4f} → Score: {endpoint_distance_score:.4f}")
-        print(f"    Efficiency Ratio: {efficiency_ratio:.4f} → Score: {efficiency_score:.4f}")
-        print(f"    Wasserstein Distance: {wasserstein_distance:.4f} → Score: {wasserstein_score:.4f}")
+        print(f"    Directional Consistency: {directional_consistency:.4f} → Score: {directional_score:.4f}")
+        print(f"    Distribution Similarity: {distribution_similarity:.4f} → Score: {distribution_score:.4f}")
         
         # Number of metrics/axes
         N = len(labels)
@@ -219,6 +163,12 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         
         # Add the values for each axis, also closing the loop
         values += values[:1]
+        
+        # Select color for this radar plot
+        color = colors[i % len(colors)]
+        
+        # Create the radar chart
+        ax = plt.subplot(gs[i], polar=True)
         
         # Draw the axes
         ax.set_theta_offset(np.pi / 2)  # Start from the top
@@ -245,10 +195,10 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         # Add a thin black outline to the polygon for definition
         ax.plot(angles, values, linewidth=0.5, linestyle='solid', color='black', alpha=0.3)
         
-        # Set the title with increased padding to avoid overlapping with Path Length Ratio label
+        # Set the title with increased padding to avoid overlapping with Path Length Similarity label
         ax.set_title(f"Model Size {size_factor}", size=12, weight='bold', pad=20)  # Increased pad from 15 to 20
     
-    # Adjust layout
+    # Adjust layout to prevent overlap
     plt.tight_layout()
     
     # Save the figure
@@ -265,18 +215,23 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     Create a single radar plot showing all model sizes together for direct comparison.
     
     This provides a complementary view to the grid of individual radar plots, allowing
-    for direct comparison between model sizes on the same axes.
+    direct comparison of all model sizes on the same axes. The plot uses the same four
+    metrics as the grid:
+    - Path Length Similarity (top)
+    - Endpoint Alignment (left)
+    - Directional Consistency (bottom)
+    - Distribution Similarity (right)
     
     Args:
         metrics_by_size: Dictionary of metrics keyed by size factor
         config: Configuration object
-        output_dir: Directory to save visualization
+        output_dir: Directory to save visualizations
         
     Returns:
         Path to the saved composite radar plot image
     """
     if output_dir is None:
-        output_dir = os.path.join(config.output_dir, "model_comparisons")
+        output_dir = config.model_comparisons_dir
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -287,87 +242,54 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
         print("  Warning: No metrics available for comparison. Skipping composite radar plot.")
         return None
     
-    # Convert all keys to floats to ensure consistent handling of size factors
-    metrics_by_size_normalized = {}
-    for key, value in metrics_by_size.items():
+    # Convert all keys to floats and sort
+    size_factors = []
+    for key in metrics_by_size.keys():
         try:
-            float_key = float(key)
-            metrics_by_size_normalized[float_key] = value
-        except (ValueError, TypeError) as e:
-            print(f"  Warning: Could not convert size factor '{key}' to float: {e}")
-            metrics_by_size_normalized[key] = value
+            size_factors.append(float(key))
+        except ValueError:
+            print(f"  Warning: Could not convert size factor '{key}' to float, skipping.")
     
-    # Replace the original dictionary with the normalized one
-    metrics_by_size = metrics_by_size_normalized
+    size_factors.sort()
     
-    # Extract size factors and sort them
-    size_factors = sorted(metrics_by_size.keys())
+    if not size_factors:
+        print("  Warning: No valid size factors found. Skipping composite radar plot.")
+        return None
     
-    # First, collect all metrics to find min and max values for scaling
-    all_path_length_ratios = []
+    # First, collect all metrics to find min and max values for min-max scaling
+    all_path_length_similarities = []
     all_endpoint_distances = []
-    all_efficiency_ratios = []
-    all_wasserstein_distances = []
+    all_directional_consistencies = []
+    all_distribution_similarities = []
     
     for size_factor in size_factors:
         metrics = metrics_by_size[size_factor]
         
-        # Extract raw metric values
-        path_length_ratio = metrics.get('path_length_ratio', 1.0)
-        endpoint_distance = metrics.get('mean_endpoint_distance', 0.0)
-        efficiency_ratio = metrics.get('efficiency_ratio', 1.0)
-        wasserstein_distance = metrics.get('mean_wasserstein', 0.0)
+        path_length_similarity = metrics.get('path_length_similarity', 1.0)
+        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        directional_consistency = metrics.get('mean_directional_consistency', 0.0)
+        distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
-        all_path_length_ratios.append(path_length_ratio)
+        all_path_length_similarities.append(path_length_similarity)
         all_endpoint_distances.append(endpoint_distance)
-        all_efficiency_ratios.append(efficiency_ratio)
-        all_wasserstein_distances.append(wasserstein_distance)
+        all_directional_consistencies.append(directional_consistency)
+        all_distribution_similarities.append(distribution_similarity)
     
     # Calculate min and max for each metric
-    min_path_ratio = min(all_path_length_ratios)
-    max_path_ratio = max(all_path_length_ratios)
-    min_endpoint = min(all_endpoint_distances)
-    max_endpoint = max(all_endpoint_distances)
-    min_efficiency = min(all_efficiency_ratios)
-    max_efficiency = max(all_efficiency_ratios)
-    min_wasserstein = min(all_wasserstein_distances)
-    max_wasserstein = max(all_wasserstein_distances)
+    min_path_similarity = min(all_path_length_similarities) if all_path_length_similarities else 0.0
+    max_path_similarity = max(all_path_length_similarities) if all_path_length_similarities else 1.0
+    min_endpoint = min(all_endpoint_distances) if all_endpoint_distances else 0.0
+    max_endpoint = max(all_endpoint_distances) if all_endpoint_distances else 1.0
+    min_directional = min(all_directional_consistencies) if all_directional_consistencies else 0.0
+    max_directional = max(all_directional_consistencies) if all_directional_consistencies else 1.0
+    min_distribution = min(all_distribution_similarities) if all_distribution_similarities else 0.0
+    max_distribution = max(all_distribution_similarities) if all_distribution_similarities else 1.0
     
-    # Print ranges for debugging
-    print(f"  Value ranges for scaling (composite plot):")
-    print(f"    Path Length Ratio: {min_path_ratio:.4f} to {max_path_ratio:.4f}")
-    print(f"    Endpoint Distance: {min_endpoint:.4f} to {max_endpoint:.4f}")
-    print(f"    Efficiency Ratio: {min_efficiency:.4f} to {max_efficiency:.4f}")
-    print(f"    Wasserstein Distance: {min_wasserstein:.4f} to {max_wasserstein:.4f}")
+    # Set up the figure
+    fig = plt.figure(figsize=(10, 8))
     
-    # Define the colormap for different size factors
-    # Use a blue to green to yellow color map similar to the reference
-    colors = {
-        0.1: (0.0, 0.0, 0.5),  # Dark blue
-        0.2: (0.0, 0.0, 0.8),  # Blue
-        0.3: (0.0, 0.2, 0.8),  # Blue-medium
-        0.4: (0.0, 0.5, 0.8),  # Teal blue
-        0.5: (0.0, 0.6, 0.6),  # Teal
-        0.6: (0.0, 0.7, 0.5),  # Teal-green
-        0.7: (0.0, 0.8, 0.3),  # Green
-        0.8: (0.4, 0.8, 0.2),  # Light green
-        0.9: (0.7, 0.8, 0.1),  # Yellow-green
-        1.0: (1.0, 0.9, 0.0),  # Yellow
-    }
-    
-    # Convert string color keys to floats for compatibility
-    colors_normalized = {}
-    for key, value in colors.items():
-        colors_normalized[float(key)] = value
-    colors = colors_normalized
-    
-    # Create figure
-    fig = plt.figure(figsize=(10, 10.5), facecolor='white')  # Increased vertical size
-    ax = plt.subplot(111, polar=True)
-    ax.set_facecolor('white')
-    
-    # Define the metrics to plot and their labels
-    labels = ['Path Length Ratio', 'Endpoint Dist', 'Path Efficiency', 'Wasserstein']
+    # Set labels for radar chart axes
+    labels = ['Path Length\nSimilarity', 'Endpoint\nAlignment', 'Directional\nConsistency', 'Distribution\nSimilarity']
     
     # Number of metrics/axes
     N = len(labels)
@@ -375,6 +297,14 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     # Set the angle for each axis (divide the plot into equal parts)
     angles = [n / float(N) * 2 * np.pi for n in range(N)]
     angles += angles[:1]  # Close the loop
+    
+    # Use a color map that clearly differentiates the different models
+    # viridis is a good choice for sequential data like model sizes
+    cmap = plt.cm.viridis
+    colors = cmap(np.linspace(0, 0.9, len(size_factors)))
+    
+    # Create the axis for the radar chart
+    ax = plt.subplot(111, polar=True)
     
     # Draw the axes
     ax.set_theta_offset(np.pi / 2)  # Start from the top
@@ -392,63 +322,65 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     ax.set_yticklabels(['0.25', '0.5', '0.75', '1.0'], fontsize=10, alpha=0.7)
     ax.set_rlim(0, 1)
     
-    # Plot data for each size factor
-    for size_factor in size_factors:
+    # Create a legend
+    legend_elements = []
+    
+    # Plot each model size
+    for i, size_factor in enumerate(size_factors):
         metrics = metrics_by_size[size_factor]
         
-        # Get color based on size factor or use a default
-        if size_factor in colors:
-            color = colors[size_factor]
+        # Get the raw metric values
+        path_length_similarity = metrics.get('path_length_similarity', 1.0)
+        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        directional_consistency = metrics.get('mean_directional_consistency', 0.0)
+        distribution_similarity = metrics.get('distribution_similarity', 0.0)
+        
+        # Normalize the metrics for radar plot
+        # path_length_similarity (higher is better)
+        # Already in [0,1], so we can use it directly
+        path_length_score = path_length_similarity
+        
+        # endpoint_distance (lower is better)
+        # Convert to a score where 1.0 is best (lowest distance)
+        # Prevent division by zero
+        endpoint_range = max_endpoint - min_endpoint
+        if endpoint_range > 0:
+            endpoint_distance_score = 1.0 - ((endpoint_distance - min_endpoint) / endpoint_range)
         else:
-            # Fallback to viridis colormap if size_factor not in predefined colors
-            cmap = plt.cm.viridis
-            norm = plt.Normalize(min(size_factors), max(size_factors))
-            color = cmap(norm(size_factor))
+            endpoint_distance_score = 1.0
         
-        # Extract metrics and normalize them
-        path_length_ratio = metrics.get('path_length_ratio', 1.0)
-        endpoint_distance = metrics.get('mean_endpoint_distance', 0.0)
-        efficiency_ratio = metrics.get('efficiency_ratio', 1.0)
-        wasserstein_distance = metrics.get('mean_wasserstein', 0.0)
+        # directional_consistency (higher is better)
+        # Already in [-1,1], scale to [0,1] where 1 is best
+        directional_score = (directional_consistency + 1) / 2 if directional_consistency != float('nan') else 0.5
         
-        # For path length ratio:
-        # Ideal value is 1.0. Score based on deviation from 1.0
-        max_path_deviation = max(max_path_ratio - 1.0, 1.0 - min_path_ratio) if min_path_ratio < 1.0 else max_path_ratio - 1.0
-        path_deviation = abs(path_length_ratio - 1.0)
-        max_path_deviation = max(0.001, max_path_deviation)
-        path_length_score = max(0.1, 1.0 - (path_deviation / max_path_deviation))
-        
-        # For endpoint distance:
-        # Ideal value is 0. Scale from 0 to max, with 0 being best (score=1.0)
-        max_endpoint = max(0.001, max_endpoint)
-        endpoint_distance_score = max(0.1, 1.0 - (endpoint_distance / max_endpoint))
-        
-        # For efficiency ratio:
-        # Ideal value is 1.0. Scale from 0 to 1, with 1 being best (score=1.0)
-        efficiency_score = max(0.1, efficiency_ratio / 1.0)
-        
-        # For Wasserstein distance:
-        # Ideal value is 0. Scale from 0 to max, with 0 being best (score=1.0)
-        max_wasserstein = max(0.001, max_wasserstein)
-        wasserstein_score = max(0.1, 1.0 - (wasserstein_distance / max_wasserstein))
+        # distribution_similarity (higher is better)
+        # Already in [0,1], so we can use it directly
+        distribution_score = distribution_similarity
         
         # Combine the metrics into the order we want for the radar plot
-        values = [path_length_score, endpoint_distance_score, efficiency_score, wasserstein_score]
-        values += values[:1]  # Close the loop
+        # Order: Path Length (top), Endpoint Dist (left), Directional Consistency (bottom), Distribution Similarity (right)
+        values = [path_length_score, endpoint_distance_score, directional_score, distribution_score]
         
-        # Plot the metrics with a line and filled polygon
-        line = ax.plot(angles, values, linewidth=2, linestyle='solid', label=f"Size {size_factor}")
-        line_color = line[0].get_color() if size_factor not in colors else color
-        ax.fill(angles, values, alpha=0.1, color=line_color)
+        # Add the values for each axis, also closing the loop
+        values += values[:1]
+        
+        # Select color for this radar plot
+        color = colors[i]
+        
+        # Plot the metrics with thicker line
+        ax.plot(angles, values, linewidth=2, linestyle='solid', color=color, label=f"Size {size_factor}")
+        
+        # Fill the polygon with lower alpha for better visibility when overlapping
+        ax.fill(angles, values, alpha=0.1, color=color)
+        
+    # Add legend outside the radar plot
+    plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
     
-    # Add legend outside the plot
-    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=5)
+    # Set title
+    plt.title('Trajectory Metrics Comparison Across Model Sizes', size=14, weight='bold', pad=20)
     
-    # Add title
-    plt.title("Comparison of Trajectory Metrics Across Model Sizes", size=16, weight='bold', pad=40)  # Increased padding
-    
-    # Adjust layout with more margin at top
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Keep space at top for title
+    # Adjust layout
+    plt.tight_layout()
     
     # Save the figure
     output_path = os.path.join(output_dir, "composite_radar_plot.png")
@@ -473,7 +405,7 @@ def create_model_size_comparisons(metrics_by_size, fid_results, config, output_d
         Dictionary of comparison results
     """
     if output_dir is None:
-        output_dir = os.path.join(config.output_dir, "model_comparisons")
+        output_dir = config.model_comparisons_dir
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -501,7 +433,7 @@ def create_model_size_comparisons(metrics_by_size, fid_results, config, output_d
     if metrics_by_size:
         first_size = sorted(metrics_by_size.keys())[0]
         print(f"Sample metrics for size {first_size}:")
-        for key in ['path_length_ratio', 'mean_endpoint_distance', 'efficiency_ratio', 'mean_wasserstein']:
+        for key in ['path_length_similarity', 'endpoint_distance', 'mean_directional_consistency', 'distribution_similarity']:
             print(f"  - {key}: {metrics_by_size[first_size].get(key, 'NOT FOUND')}")
     
     # Check if we have any valid metrics

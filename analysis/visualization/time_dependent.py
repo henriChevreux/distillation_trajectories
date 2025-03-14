@@ -23,7 +23,7 @@ def plot_time_dependent_grid(time_distances_dict, config, save_dir=None):
     print("Plotting time-dependent grid...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "time_dependent")
+        save_dir = config.time_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -126,7 +126,7 @@ def plot_time_dependent_combined(time_distances_dict, config, save_dir=None):
     print("Plotting combined time-dependent visualization...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "time_dependent")
+        save_dir = config.time_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -256,7 +256,7 @@ def plot_trajectory_divergence_vs_timestep(all_metrics, config, save_dir=None):
     print("Plotting trajectory divergence (MSE) vs timestep...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "time_dependent")
+        save_dir = config.time_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
