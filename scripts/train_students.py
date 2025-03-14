@@ -82,21 +82,9 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
         "cpu"
     )
     
-    # Determine architecture type based on size factor
-    architecture_type = None
-    if size_factor < 0.1:
-        architecture_type = 'tiny'     # Use the smallest architecture for very small models
-    elif size_factor < 0.3:
-        architecture_type = 'small'    # Use small architecture for small models
-    elif size_factor < 0.7:
-        architecture_type = 'medium'   # Use medium architecture for medium models
-    else:
-        architecture_type = 'full'     # Use full architecture for large models
-    
-    # Initialize student model with the specified size factor and architecture
-    student_model = StudentUNet(config, size_factor=size_factor, architecture_type=architecture_type).to(device)
-    
-    print(f"Using architecture type: {architecture_type} for size factor {size_factor}")
+    # Initialize student model with the specified size factor
+    # The architecture type will be automatically determined based on size_factor
+    student_model = StudentUNet(config, size_factor=size_factor).to(device)
     
     # Get the model size in MB
     def get_model_size(model):
@@ -125,11 +113,11 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
     convert_t = lambda t_teacher: torch.floor(t_teacher * (config.student_steps / config.teacher_steps)).long()
     
     # Training loop
-    for epoch in range(config.epochs // 2):  # Fewer epochs for distillation
+    for epoch in range(config.epochs):  # Use full number of epochs for distillation
         student_model.train()
         total_loss = 0
         
-        progress_bar = tqdm(train_loader, desc=f'Distillation Epoch {epoch+1}/{config.epochs//2}', 
+        progress_bar = tqdm(train_loader, desc=f'Distillation Epoch {epoch+1}/{config.epochs}', 
                            leave=config.progress_bar_leave, 
                            ncols=config.progress_bar_ncols, 
                            position=config.progress_bar_position)
@@ -176,7 +164,7 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             progress_bar.set_postfix(loss=total_loss/(batch_idx+1))
         
         # Save model at the end of each epoch
-        if (epoch + 1) % config.save_interval == 0 or epoch == (config.epochs // 2) - 1:
+        if (epoch + 1) % config.save_interval == 0 or epoch == (config.epochs) - 1:
             # Create size-specific directory
             size_dir = os.path.join(config.student_models_dir, f'size_{size_factor}')
             os.makedirs(size_dir, exist_ok=True)
@@ -187,13 +175,13 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             torch.save(student_model.state_dict(), save_path)
             
             # Only generate samples at the end of training to save time
-            if epoch == (config.epochs // 2) - 1:
+            if epoch == (config.epochs) - 1:
                 # Generate some samples
                 student_model.eval()
                 samples = p_sample_loop(
                     student_model, 
                     shape=(config.num_samples_to_generate, config.channels, config.image_size, config.image_size),
-                    timesteps=config.student_steps,
+                    sample_steps=config.student_steps,
                     diffusion_params=student_params,
                     device=device,
                     config=config

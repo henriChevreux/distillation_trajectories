@@ -34,7 +34,7 @@ def train_teacher(config):
         Trained teacher model
     """
     # Determine device
-    device = torch.device(
+    device = torch.device("cpu") if hasattr(config, 'force_cpu') and config.force_cpu else torch.device(
         "cuda" if torch.cuda.is_available() else 
         "mps" if torch.backends.mps.is_available() and config.mps_enabled else
         "cpu"
@@ -85,7 +85,7 @@ def train_teacher(config):
             samples = p_sample_loop(
                 model=model,
                 shape=(config.num_samples_to_generate, config.channels, config.image_size, config.image_size),
-                timesteps=config.timesteps,
+                sample_steps=config.sample_steps,
                 diffusion_params=diffusion_params,
                 device=device,
                 config=config,  # Pass the config parameter here

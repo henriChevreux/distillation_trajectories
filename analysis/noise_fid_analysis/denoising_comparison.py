@@ -17,7 +17,7 @@ def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=Non
         config: Configuration object
         num_samples: Number of samples to generate
         save_dir: Directory to save results
-        fixed_samples: Fixed samples to use for consistent comparison
+        fixed_samples: Fixed samples to use for consistent comparison (ignored, using random noise instead)
         
     Returns:
         None
@@ -61,43 +61,92 @@ def create_denoising_comparison_plot(models, config, num_samples=5, save_dir=Non
     # Get device
     device = next(models[model_names[0]].parameters()).device
     
-    # Use fixed samples if provided, otherwise generate random noise
-    if fixed_samples is not None and len(fixed_samples) >= num_samples:
-        print(f"Using {num_samples} fixed samples for consistent comparison")
-        noise = fixed_samples[:num_samples].to(device)
-    else:
-        print("Generating random noise as starting point")
-        shape = (num_samples, config.channels, config.image_size, config.image_size)
-        noise = torch.randn(shape, device=device)
+    # Always use random noise for consistent comparison
+    print("Generating random noise as starting point")
+    # Set a fixed seed for reproducibility
+    torch.manual_seed(42)
+    shape = (num_samples, config.channels, config.image_size, config.image_size)
+    noise = torch.randn(shape, device=device)
     
-    # Create a figure with subplots for each model
-    fig, axes = plt.subplots(len(model_names), 1, figsize=(12, 4*len(model_names)))
+    # Ensure all models use the same image resolution
+    # Get the image size from the config
+    image_size = config.image_size
+    print(f"Using consistent image size of {image_size}x{image_size} for all models")
+    
+    # Resize noise if needed
+    if noise.shape[2] != image_size or noise.shape[3] != image_size:
+        noise = torch.nn.functional.interpolate(
+            noise, size=(image_size, image_size), mode='bilinear', align_corners=True
+        )
+        print(f"Resized noise to {noise.shape}")
+    
+    # Number of timesteps to visualize
+    num_viz_steps = 5
+    
+    # Create a figure with subplots for each model and timestep
+    fig, axes = plt.subplots(len(model_names), num_viz_steps, figsize=(15, 4*len(model_names)))
     if len(model_names) == 1:
         axes = [axes]
     
-    # For each model, show the denoising process
+    # Calculate timesteps to visualize (from noisy to clean)
+    timesteps = torch.linspace(config.timesteps-1, 0, num_viz_steps).long().to(device)
+    
+    # For each model, show the denoising process at different timesteps
     for i, model_name in enumerate(model_names):
         model = models[model_name]
         model.eval()
         
-        # Create a placeholder for the denoised images
-        # In a real implementation, this would use the actual diffusion process
-        denoised = noise.clone()
-        for _ in range(3):  # Simulate a few denoising steps
-            denoised = denoised * 0.8  # Reduce noise
+        # Start with the same noise for all models
+        x = noise.clone()
         
-        # Create a grid of the denoised images
-        grid = make_grid(denoised, nrow=num_samples)
+        with torch.no_grad():
+            # Perform the actual diffusion process
+            for j, t in enumerate(timesteps):
+                # Create a batch of the same timestep
+                t_batch = torch.full((num_samples,), t, device=device, dtype=torch.long)
+                
+                # Get model prediction
+                model_output = model(x, t_batch)
+                
+                # Ensure the output has the same resolution as the input
+                if model_output.shape[2] != image_size or model_output.shape[3] != image_size:
+                    model_output = torch.nn.functional.interpolate(
+                        model_output, size=(image_size, image_size), mode='bilinear', align_corners=True
+                    )
+                    print(f"Resized model output for {model_name} to {model_output.shape}")
+                
+                # For visualization purposes, we'll normalize the output
+                normalized = (model_output + 1) / 2  # Normalize from [-1,1] to [0,1]
+                
+                # Create a grid of the images at this timestep
+                grid = make_grid(normalized, nrow=1)
+                
+                # Convert to numpy for plotting
+                grid_np = grid.permute(1, 2, 0).detach().cpu().numpy()
+                
+                # Plot on the corresponding subplot
+                axes[i][j].imshow(np.clip(grid_np, 0, 1))
+                axes[i][j].set_title(f"t={t.item()}")
+                axes[i][j].axis('off')
+                
+                # Update x for the next timestep if not the last one
+                if j < num_viz_steps - 1:
+                    # Use the model output as the input for the next timestep
+                    x = model_output
         
-        # Convert to numpy for plotting
-        grid_np = grid.permute(1, 2, 0).detach().cpu().numpy()
-        
-        # Plot on the corresponding subplot
-        axes[i].imshow(np.clip(grid_np, 0, 1))
-        axes[i].set_title(f"Denoised Images - {model_name}")
-        axes[i].axis('off')
+        # Add row label
+        fig.text(0.01, 0.5 + (i - len(model_names)/2 + 0.5) / len(model_names), 
+                 f"Model: {model_name}", va='center', ha='left', rotation='vertical')
     
-    plt.tight_layout()
+    # Add column labels
+    for j in range(num_viz_steps):
+        fig.text(0.1 + (j + 0.5) / num_viz_steps, 0.01, 
+                 f"Timestep {timesteps[j].item()}", va='bottom', ha='center')
+    
+    # Add title
+    fig.suptitle("Denoising Process Comparison", fontsize=16)
+    
+    plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
     
     if save_dir:
         plt.savefig(os.path.join(save_dir, "denoising_comparison.png"))

@@ -81,13 +81,21 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
-        # Generate random noise for teacher
+        # Generate random noise for both teacher and student
         x_teacher = torch.randn(1, self.config.channels, self.config.image_size, self.config.image_size).to(self.device)
         
-        # Generate teacher trajectory
+        # Calculate step size to evenly distribute the timesteps across sample steps
+        teacher_step_size = self.config.sample_steps // self.config.teacher_steps
+        
+        # Generate teacher trajectory - standard denoising process (noise to clean)
         teacher_trajectory = []
         with torch.no_grad():
-            for t in range(self.config.teacher_steps - 1, -1, -1):
+            # Select the timesteps to use (evenly spaced)
+            teacher_timestep_indices = [i * teacher_step_size for i in range(self.config.teacher_steps)]
+            if teacher_timestep_indices[-1] != self.config.sample_steps - 1:
+                teacher_timestep_indices.append(self.config.sample_steps - 1)  # Ensure we include the last step
+            
+            for t in reversed(teacher_timestep_indices):
                 t_tensor = torch.tensor([t], device=self.device)
                 
                 # Store current state
@@ -115,10 +123,18 @@ class TrajectoryManager:
         
         x_student = torch.randn(1, self.config.channels, student_image_size, student_image_size).to(self.device)
         
-        # Generate student trajectory
+        # Calculate step size to evenly distribute the timesteps across sample steps
+        student_step_size = self.config.sample_steps // self.config.student_steps
+        
+        # Generate student trajectory - standard denoising process (noise to clean)
         student_trajectory = []
         with torch.no_grad():
-            for t in range(self.config.student_steps - 1, -1, -1):
+            # Select the timesteps to use (evenly spaced)
+            student_timestep_indices = [i * student_step_size for i in range(self.config.student_steps)]
+            if student_timestep_indices[-1] != self.config.sample_steps - 1:
+                student_timestep_indices.append(self.config.sample_steps - 1)  # Ensure we include the last step
+            
+            for t in reversed(student_timestep_indices):
                 t_tensor = torch.tensor([t], device=self.device)
                 
                 # Store current state
@@ -251,7 +267,7 @@ class TrajectoryManager:
         Generate a trajectory pair starting from a fixed sample
         
         Args:
-            sample: Fixed sample to start from
+            sample: Fixed sample to start from (should be noise)
             seed: Random seed for reproducibility
             
         Returns:
@@ -266,17 +282,28 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
-        # Move sample to device without reshaping
+        # Ensure the sample has the correct dimensions (4D: batch, channels, height, width)
+        sample = self._ensure_tensor_compatibility(sample)
+        
+        # Use the provided sample as the starting point (should be noise)
         x_teacher = sample.clone().to(self.device)
         
         # Log information about the sample
         print(f"Sample shape for teacher: {x_teacher.shape}")
         
-        # Generate teacher trajectory
+        # Calculate step size to evenly distribute the timesteps across sample steps
+        teacher_step_size = self.config.sample_steps // self.config.teacher_steps
+        
+        # Generate teacher trajectory - standard denoising process (noise to clean)
         teacher_trajectory = []
         try:
             with torch.no_grad():
-                for t in range(self.config.teacher_steps - 1, -1, -1):
+                # Select the timesteps to use (evenly spaced)
+                teacher_timestep_indices = [i * teacher_step_size for i in range(self.config.teacher_steps)]
+                if teacher_timestep_indices[-1] != self.config.sample_steps - 1:
+                    teacher_timestep_indices.append(self.config.sample_steps - 1)  # Ensure we include the last step
+                
+                for t in reversed(teacher_timestep_indices):
                     t_tensor = torch.tensor([t], device=self.device)
                     
                     # Store current state
@@ -291,44 +318,42 @@ class TrajectoryManager:
                         noise = torch.randn_like(x_teacher)
                         x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
         except Exception as e:
-            print(f"Error in teacher trajectory generation: {e}")
-            print(f"Teacher input tensor shape: {x_teacher.shape}")
-            raise
+            print(f"Error generating teacher trajectory: {e}")
+            return [], []
         
-        # Reset to the same starting sample for student
-        if seed is not None:
-            torch.manual_seed(seed)
-            np.random.seed(seed)
-        
+        # Use the provided sample as the starting point for student
         # Check if student model has a different image size
         student_image_size = self.config.image_size
         if hasattr(self.student_model, 'image_size'):
             student_image_size = self.student_model.image_size
         
-        # Resize the sample if needed for the student model
-        if student_image_size != self.config.image_size:
-            try:
-                x_student = torch.nn.functional.interpolate(
-                    sample.clone(),
-                    size=(student_image_size, student_image_size),
-                    mode='bilinear',
-                    align_corners=True
-                ).to(self.device)
-            except Exception as e:
-                print(f"Error resizing sample for student model: {e}")
-                print(f"Sample shape: {sample.shape}, Target size: {student_image_size}")
-                raise
+        # Resize sample if needed
+        if sample.shape[2] != student_image_size or sample.shape[3] != student_image_size:
+            x_student = torch.nn.functional.interpolate(
+                sample.clone(), 
+                size=(student_image_size, student_image_size),
+                mode='bilinear', 
+                align_corners=True
+            ).to(self.device)
         else:
             x_student = sample.clone().to(self.device)
         
         # Log information about the sample for the student
         print(f"Sample shape for student: {x_student.shape}")
         
-        # Generate student trajectory
+        # Calculate step size to evenly distribute the timesteps across sample steps
+        student_step_size = self.config.sample_steps // self.config.student_steps
+        
+        # Generate student trajectory - standard denoising process (noise to clean)
         student_trajectory = []
         try:
             with torch.no_grad():
-                for t in range(self.config.student_steps - 1, -1, -1):
+                # Select the timesteps to use (evenly spaced)
+                student_timestep_indices = [i * student_step_size for i in range(self.config.student_steps)]
+                if student_timestep_indices[-1] != self.config.sample_steps - 1:
+                    student_timestep_indices.append(self.config.sample_steps - 1)  # Ensure we include the last step
+                
+                for t in reversed(student_timestep_indices):
                     t_tensor = torch.tensor([t], device=self.device)
                     
                     # Store current state
@@ -343,9 +368,8 @@ class TrajectoryManager:
                         noise = torch.randn_like(x_student)
                         x_student = self._update_x(x_student, noise_pred, t, noise)
         except Exception as e:
-            print(f"Error in student trajectory generation: {e}")
-            print(f"Student input tensor shape: {x_student.shape}")
-            raise
+            print(f"Error generating student trajectory: {e}")
+            return teacher_trajectory, []
         
         # Resize student trajectory images to match teacher size if needed
         if student_image_size != self.config.image_size:

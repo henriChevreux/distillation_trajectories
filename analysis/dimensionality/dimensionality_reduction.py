@@ -17,7 +17,93 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
     
     Args:
         teacher_trajectories: List of teacher trajectories
-        student_trajectories: List of student trajectories  
+        student_trajectories: List of student trajectories
+        output_dir: Directory to save visualizations
+        size_factor: Size factor of the student model for labeling
+    """
+    print("  Visualizing trajectory comparison...")
+    
+    # Select a single trajectory for visualization
+    teacher_traj = teacher_trajectories[0]
+    student_traj = student_trajectories[0]
+    
+    # Get number of timesteps
+    n_timesteps = len(teacher_traj)
+    
+    # Select a subset of timesteps to visualize
+    # Ensure we're showing the trajectory from noise (t=high) to clean (t=0)
+    timesteps_to_show = min(10, n_timesteps)
+    indices = np.linspace(0, n_timesteps - 1, timesteps_to_show, dtype=int)
+    
+    # Create figure
+    fig, axes = plt.subplots(2, timesteps_to_show, figsize=(20, 5))
+    fig.suptitle(f'Trajectory Comparison (Size Factor: {size_factor})', fontsize=16)
+    
+    # Plot teacher trajectory
+    for i, idx in enumerate(indices):
+        img, timestep = teacher_traj[idx]
+        if isinstance(img, torch.Tensor):
+            img = img.cpu().numpy()
+        
+        # Reshape if needed
+        if len(img.shape) == 4:  # [B, C, H, W]
+            img = img[0]
+        
+        # Convert to appropriate format for display
+        if img.shape[0] == 1:  # Grayscale
+            img = img[0]
+            axes[0, i].imshow(img, cmap='gray')
+        else:  # RGB
+            img = np.transpose(img, (1, 2, 0))
+            # Normalize to [0, 1]
+            img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+            axes[0, i].imshow(img)
+        
+        axes[0, i].set_title(f't={timestep}')
+        axes[0, i].axis('off')
+    
+    # Plot student trajectory
+    for i, idx in enumerate(indices):
+        img, timestep = student_traj[idx]
+        if isinstance(img, torch.Tensor):
+            img = img.cpu().numpy()
+        
+        # Reshape if needed
+        if len(img.shape) == 4:  # [B, C, H, W]
+            img = img[0]
+        
+        # Convert to appropriate format for display
+        if img.shape[0] == 1:  # Grayscale
+            img = img[0]
+            axes[1, i].imshow(img, cmap='gray')
+        else:  # RGB
+            img = np.transpose(img, (1, 2, 0))
+            # Normalize to [0, 1]
+            img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+            axes[1, i].imshow(img)
+        
+        axes[1, i].set_title(f't={timestep}')
+        axes[1, i].axis('off')
+    
+    # Add row labels
+    axes[0, 0].set_ylabel('Teacher', fontsize=14)
+    axes[1, 0].set_ylabel('Student', fontsize=14)
+    
+    # Add a note about the diffusion process direction
+    plt.figtext(0.5, 0.01, 'Diffusion Process: Noise (left) → Clean Image (right)', 
+                ha='center', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'trajectory_comparison_size_{size_factor}.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories, config, output_dir=None, size_factor=None):
+    """
+    Perform dimensionality reduction analysis on trajectories
+    
+    Args:
+        teacher_trajectories: List of teacher trajectories
+        student_trajectories: List of student trajectories
         config: Configuration object
         size_factor: Size factor of the student model
     """
