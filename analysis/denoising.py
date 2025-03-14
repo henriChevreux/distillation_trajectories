@@ -28,9 +28,25 @@ def plot_denoising_grid(model, config, device, num_samples=1, save_path=None):
     image_size = config.teacher_image_size
     x = torch.randn(num_samples, 3, image_size, image_size).to(device)
     
-    # Select timesteps to visualize
+    # Calculate step size to evenly distribute the timesteps across sample steps
+    step_size = config.sample_steps // config.timesteps
+    
+    # Select a subset of timesteps to visualize - from high to low (noise to clean)
     num_viz_steps = 8
-    timesteps = torch.linspace(0, config.timesteps - 1, num_viz_steps).long()
+    
+    # Calculate indices to visualize (evenly spaced)
+    viz_indices = np.linspace(0, config.timesteps - 1, num_viz_steps, dtype=int)
+    
+    # Map these indices to actual timestep values
+    timesteps_to_visualize = []
+    for idx in viz_indices:
+        t = idx * step_size
+        if t >= config.sample_steps:
+            t = config.sample_steps - 1
+        timesteps_to_visualize.append(t)
+    
+    # Sort in descending order (noise to clean)
+    timesteps_to_visualize = sorted(timesteps_to_visualize, reverse=True)
     
     # Create figure
     fig, axes = plt.subplots(num_samples, num_viz_steps, figsize=(20, 4 * num_samples))
@@ -39,7 +55,7 @@ def plot_denoising_grid(model, config, device, num_samples=1, save_path=None):
     
     # Generate and plot images
     with torch.no_grad():
-        for t_idx, t in enumerate(timesteps):
+        for t_idx, t in enumerate(timesteps_to_visualize):
             # Denoise image at current timestep
             noise_level = torch.ones(num_samples, device=device) * t
             denoised = model(x, noise_level)
@@ -52,7 +68,11 @@ def plot_denoising_grid(model, config, device, num_samples=1, save_path=None):
                 ax = axes[sample_idx, t_idx]
                 ax.imshow(img)
                 ax.axis('off')
-                ax.set_title(f't={t.item()}')
+                ax.set_title(f't={t}')
+    
+    # Add a note about the diffusion process direction
+    plt.figtext(0.5, 0.01, 'Diffusion Process: Noise (left) → Clean Image (right)', 
+                ha='center', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
     
     plt.tight_layout()
     
@@ -83,16 +103,32 @@ def compare_denoising_process(teacher_model, student_model, config, device, save
     x = torch.randn(1, 3, image_size, image_size).to(device)
     x_student = x.clone()
     
-    # Select timesteps to visualize
+    # Calculate step size to evenly distribute the timesteps across sample steps
+    step_size = config.sample_steps // config.timesteps
+    
+    # Select a subset of timesteps to visualize - from high to low (noise to clean)
     num_viz_steps = 8
-    timesteps = torch.linspace(0, config.timesteps - 1, num_viz_steps).long()
+    
+    # Calculate indices to visualize (evenly spaced)
+    viz_indices = np.linspace(0, config.timesteps - 1, num_viz_steps, dtype=int)
+    
+    # Map these indices to actual timestep values
+    timesteps_to_visualize = []
+    for idx in viz_indices:
+        t = idx * step_size
+        if t >= config.sample_steps:
+            t = config.sample_steps - 1
+        timesteps_to_visualize.append(t)
+    
+    # Sort in descending order (noise to clean)
+    timesteps_to_visualize = sorted(timesteps_to_visualize, reverse=True)
     
     # Create figure
     fig, axes = plt.subplots(2, num_viz_steps, figsize=(20, 8))
     
     # Generate and plot images
     with torch.no_grad():
-        for t_idx, t in enumerate(timesteps):
+        for t_idx, t in enumerate(timesteps_to_visualize):
             noise_level = torch.ones(1, device=device) * t
             
             # Denoise with teacher
@@ -108,13 +144,18 @@ def compare_denoising_process(teacher_model, student_model, config, device, save
             # Plot
             axes[0, t_idx].imshow(teacher_img)
             axes[0, t_idx].axis('off')
-            axes[0, t_idx].set_title(f'Teacher t={t.item()}')
+            axes[0, t_idx].set_title(f'Teacher t={t}')
             
             axes[1, t_idx].imshow(student_img)
             axes[1, t_idx].axis('off')
-            axes[1, t_idx].set_title(f'Student t={t.item()}')
+            axes[1, t_idx].set_title(f'Student t={t}')
     
     plt.suptitle('Teacher vs Student Denoising Process Comparison')
+    
+    # Add a note about the diffusion process direction
+    plt.figtext(0.5, 0.01, 'Diffusion Process: Noise (left) → Clean Image (right)', 
+                ha='center', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+    
     plt.tight_layout()
     
     if save_dir:
@@ -139,17 +180,27 @@ def analyze_denoising_trajectory(teacher_model, student_model, config, device, s
     teacher_model.eval()
     student_model.eval()
     
-    # Generate same initial noise
+    # Generate same initial noise for both models
     image_size = config.teacher_image_size
     num_samples = 5
     trajectories = []
     
     for _ in tqdm(range(num_samples), desc="Analyzing trajectories"):
+        # Start with random noise
         x = torch.randn(1, 3, image_size, image_size).to(device)
         x_student = x.clone()
         
-        # Record trajectories at more frequent intervals
-        timesteps = torch.linspace(0, config.timesteps - 1, 50).long()
+        # Calculate step size to evenly distribute the timesteps across sample steps
+        step_size = config.sample_steps // config.timesteps
+        
+        # Select the timesteps to use (evenly spaced)
+        timestep_indices = [i * step_size for i in range(config.timesteps)]
+        if timestep_indices[-1] != config.sample_steps - 1:
+            timestep_indices.append(config.sample_steps - 1)  # Ensure we include the last step
+        
+        # Record trajectories at these timesteps
+        # Use reversed timesteps to follow standard diffusion process (noise to clean)
+        timesteps = torch.tensor(list(reversed(timestep_indices)), device=device)
         teacher_trajectory = []
         student_trajectory = []
         

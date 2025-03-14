@@ -259,6 +259,7 @@ def visualize_trajectory_comparison(teacher_trajectories, student_trajectories, 
     n_timesteps = len(teacher_traj)
     
     # Select a subset of timesteps to visualize
+    # Ensure we're showing the trajectory from noise (t=high) to clean (t=0)
     timesteps_to_show = min(10, n_timesteps)
     indices = np.linspace(0, n_timesteps - 1, timesteps_to_show, dtype=int)
     
@@ -315,6 +316,10 @@ def visualize_trajectory_comparison(teacher_trajectories, student_trajectories, 
     # Add row labels
     axes[0, 0].set_ylabel('Teacher', fontsize=14)
     axes[1, 0].set_ylabel('Student', fontsize=14)
+    
+    # Add a note about the diffusion process direction
+    plt.figtext(0.5, 0.01, 'Diffusion Process: Noise (left) → Clean Image (right)', 
+                ha='center', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f'trajectory_comparison_size_{size_factor}.png'), dpi=300, bbox_inches='tight')

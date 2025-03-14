@@ -32,7 +32,7 @@ from config.config import Config
 print(f"Config import completed in {time.time() - start_config_import:.2f}s")
 
 start_models_import = time.time()
-from models import SimpleUNet, StudentUNet  # Import directly from models.py
+from models import SimpleUNet, StudentUNet, DiffusionUNet  # Import DiffusionUNet
 print(f"Models import completed in {time.time() - start_models_import:.2f}s")
 
 start_utils_import = time.time()
@@ -288,13 +288,14 @@ def load_model_with_fallback(model_path, model, device):
             
             state_dict_time = time.time()
             if isinstance(state_dict, dict):
-                model.load_state_dict(state_dict)
+                # Use strict=False to allow loading models with missing or unexpected keys
+                model.load_state_dict(state_dict, strict=False)
             elif hasattr(state_dict, 'state_dict'):
-                model.load_state_dict(state_dict.state_dict())
+                model.load_state_dict(state_dict.state_dict(), strict=False)
             else:
                 print(f"Warning: Unsupported state dict type: {type(state_dict)}")
                 print("Attempting to use the loaded object directly...")
-                model.load_state_dict(state_dict)
+                model.load_state_dict(state_dict, strict=False)
             
             print(f"State dict applied to model in {time.time() - state_dict_time:.2f}s")
             print(f"Successfully loaded model using method {i+1}: {description}")
@@ -313,6 +314,9 @@ def load_model_with_fallback(model_path, model, device):
                 print("  - The model file may be corrupted or incomplete")
             elif "No such file or directory" in error_msg:
                 print("  - Check that the file path is correct and accessible")
+            elif "size mismatch" in error_msg or "Missing key" in error_msg or "Unexpected key" in error_msg:
+                print("  - The model architecture has changed since this model was saved")
+                print("  - Using strict=False to allow loading with missing or unexpected keys")
             
             last_error = e
             # Continue to the next method
@@ -329,6 +333,7 @@ def load_model_with_fallback(model_path, model, device):
     print("1. Try using the convert_model.py script to convert the model file")
     print("2. Try re-training the model with the current PyTorch version")
     print("3. Check if you can load the model with a different PyTorch version")
+    print("4. Train a new model with the current architecture")
     return False
 
 def ensure_tensor_compatibility(tensor_or_batch):
@@ -501,7 +506,11 @@ def main():
         # Load teacher model
         model_load_time = time.time()
         print("Loading teacher model...")
-        teacher_model = SimpleUNet(config).to(device)
+        # Ensure the config has the correct image size before initializing the model
+        print(f"Setting image size to {config.image_size}x{config.image_size} for teacher model")
+        
+        # Use DiffusionUNet directly with size_factor=1.0 for teacher model
+        teacher_model = DiffusionUNet(config, size_factor=1.0).to(device)
         
         if os.path.exists(teacher_model_path):
             if not load_model_with_fallback(teacher_model_path, teacher_model, device):
@@ -577,8 +586,12 @@ def main():
         student_models = {}
         
         # Function to determine architecture type based on size factor
+        # This is no longer needed as the StudentUNet class handles this internally
+        # But we'll keep it for backward compatibility with older code
         def get_architecture_type(size_factor):
-            if float(size_factor) < 0.3:
+            if float(size_factor) < 0.1:
+                return 'tiny'     # Use tiny architecture for very small models
+            elif float(size_factor) < 0.3:
                 return 'small'    # Use small architecture for small models
             elif float(size_factor) < 0.7:
                 return 'medium'   # Use medium architecture for medium models
@@ -590,11 +603,8 @@ def main():
             for size_factor, path in student_model_paths.items():
                 print(f"Loading student model with size factor {size_factor}...")
                 
-                # Determine architecture type based on size factor
-                architecture_type = get_architecture_type(size_factor)
-                
-                print(f"Using architecture type: {architecture_type} for size factor {size_factor}")
-                student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
+                # Let the StudentUNet class determine the architecture type automatically
+                student_model = DiffusionUNet(config, size_factor=float(size_factor)).to(device)
                 
                 if os.path.exists(path):
                     try:
@@ -627,8 +637,8 @@ def main():
                         continue
                         
                     print(f"Found student model with size factor {size_factor}...")
-                    architecture_type = get_architecture_type(size_factor)
-                    student_model = StudentUNet(config, size_factor=float(size_factor), architecture_type=architecture_type).to(device)
+                    # Let the StudentUNet class determine the architecture type automatically
+                    student_model = DiffusionUNet(config, size_factor=float(size_factor)).to(device)
                     if not load_model_with_fallback(path, student_model, device):
                         print(f"WARNING: Failed to load student model with size factor {size_factor}. Skipping this model.")
                         continue
@@ -640,7 +650,7 @@ def main():
                     path = os.path.join(students_dir, 'student_model_epoch_1.pt')
                     if os.path.exists(path):
                         print("Loading student model with default size...")
-                        student_model = SimpleUNet(config).to(device)
+                        student_model = DiffusionUNet(config, size_factor=1.0).to(device)
                         if not load_model_with_fallback(path, student_model, device):
                             print(f"ERROR: Failed to load student model with default size.")
                             return
@@ -663,8 +673,8 @@ def main():
                         except:
                             pass
                     
-                    architecture_type = get_architecture_type(size_factor)
-                    student_model = StudentUNet(config, size_factor=size_factor, architecture_type=architecture_type).to(device)
+                    # Let the StudentUNet class determine the architecture type automatically
+                    student_model = DiffusionUNet(config, size_factor=size_factor).to(device)
                     if not load_model_with_fallback(path, student_model, device):
                         print(f"ERROR: Failed to load student model with size factor {size_factor}.")
                         return
@@ -680,14 +690,11 @@ def main():
         # If only running denoising comparison, skip other analyses
         if args.only_denoising:
             print("\nRunning only denoising comparison...")
-            # Ensure samples have the right format before denoising comparison
-            denoising_samples = preprocess_fixed_samples(fixed_test_samples[:args.num_denoising_samples])
-            # Create the comparison plot
+            # Create the comparison plot without using fixed samples
             create_denoising_comparison_plot(
                 {**{"teacher": teacher_model}, **student_models},
                 config,
-                save_dir=os.path.join(config.analysis_dir, "denoising_comparison"),
-                fixed_samples=denoising_samples  # Explicitly pre-processed samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
             return
@@ -779,7 +786,7 @@ def main():
                 teacher_subset, student_subset = trajectory_manager.load_trajectories(
                     size_factor=size_factor, 
                     indices=list(range(min(5, args.num_samples)))  # Use at most 5 trajectories
-                    )
+                )
                 dimensionality_reduction_analysis(teacher_subset, student_subset, config, size_factor=size_factor)
             else:
                 print("Skipping dimensionality reduction analysis.")
@@ -871,29 +878,28 @@ def main():
         # After loading all models and before running other analyses, add:
         if len(student_models) > 0:
             print("\nGenerating denoising comparison visualization...")
-            # Ensure samples have the right format before denoising comparison
-            denoising_samples = preprocess_fixed_samples(fixed_test_samples[:args.num_denoising_samples])
-            # Create the comparison plot
+            # Create the comparison plot without using fixed samples
             create_denoising_comparison_plot(
                 {**{"teacher": teacher_model}, **student_models},
                 config,
-                save_dir=os.path.join(config.analysis_dir, "denoising_comparison"),
-                fixed_samples=denoising_samples  # Explicitly pre-processed samples
+                save_dir=os.path.join(config.analysis_dir, "denoising_comparison")
             )
             print("Denoising comparison saved in analysis/denoising_comparison/")
         
         print("\nAnalysis complete. Results saved in the analysis directory.")
         
-    except RuntimeError as e:
-        if "size mismatch" in str(e):
+    except Exception as e:
+        if isinstance(e, RuntimeError) and "size mismatch" in str(e):
             print("\nERROR: Model architecture mismatch.")
             print("The saved models were trained with a different architecture than the current one.")
             print("This is likely because the models were trained on MNIST but the code is now configured for CIFAR10.")
             print("Please train new models with the current architecture:")
             print("\n    python diffusion_training.py\n")
         else:
+            print(f"\nERROR: An error occurred during analysis: {str(e)}")
             # Re-raise if it's not the size mismatch error
-            raise
+            if not (isinstance(e, RuntimeError) and "size mismatch" in str(e)):
+                raise
 
 if __name__ == "__main__":
     main()

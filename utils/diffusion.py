@@ -11,6 +11,10 @@ from config.config import Config
 def extract(a, t, x_shape):
     """Extract coefficients at specified timesteps t"""
     b, *_ = t.shape
+    
+    # Ensure t is within bounds
+    t = torch.clamp(t, 0, a.shape[0] - 1)
+    
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
@@ -18,13 +22,18 @@ def linear_beta_schedule(timesteps, beta_start=1e-4, beta_end=0.02):
     """Linear beta schedule as proposed in the original DDPM paper"""
     return torch.linspace(beta_start, beta_end, timesteps)
 
-def get_diffusion_params(timesteps, config=None):
-    """Set up diffusion parameters"""
+def get_diffusion_params(sample_steps, config=None):
+    """Set up diffusion parameters
+    
+    Args:
+        sample_steps: Number of sample steps in the diffusion process (typically 4000)
+        config: Configuration object
+    """
     # Define beta schedule
     beta_start = config.beta_start if config else 1e-4
     beta_end = config.beta_end if config else 0.02
     
-    betas = linear_beta_schedule(timesteps, beta_start, beta_end)
+    betas = linear_beta_schedule(sample_steps, beta_start, beta_end)
     
     # Define alphas
     alphas = 1. - betas
@@ -40,7 +49,7 @@ def get_diffusion_params(timesteps, config=None):
     posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
     
     # Get device
-    device = torch.device(
+    device = torch.device("cpu") if (config and hasattr(config, 'force_cpu') and config.force_cpu) else torch.device(
         "cuda" if torch.cuda.is_available() else 
         "mps" if torch.backends.mps.is_available() and (config.mps_enabled if config else False) else
         "cpu"
@@ -139,14 +148,14 @@ def p_sample(model, x, t, t_index, diffusion_params):
         return model_mean + torch.sqrt(posterior_variance_t) * noise
 
 @torch.no_grad()
-def p_sample_loop(model, shape, timesteps, diffusion_params, device=None, config=None, track_trajectory=False):
+def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, config=None, track_trajectory=False):
     """
     Generate samples by iteratively denoising from pure noise
     
     Args:
         model: The diffusion model
         shape: Shape of the samples to generate
-        timesteps: Number of timesteps in the diffusion process
+        sample_steps: Number of sample steps in the diffusion process (typically 4000)
         diffusion_params: Parameters for the diffusion process
         device: Device to use (if None, will use the device of the model)
         config: Configuration object (optional)
@@ -176,9 +185,22 @@ def p_sample_loop(model, shape, timesteps, diffusion_params, device=None, config
         progress_bar_leave = getattr(config, 'progress_bar_leave', False)
         progress_bar_position = getattr(config, 'progress_bar_position', 0)
     
-    for i in tqdm(reversed(range(0, timesteps)), 
+    # Use the actual number of timesteps from config if available, otherwise use sample_steps
+    num_timesteps = config.timesteps if config else sample_steps
+    
+    # Calculate step size to evenly distribute the timesteps
+    step_size = max(1, sample_steps // num_timesteps)
+    
+    # Select the timesteps to use (evenly spaced)
+    # Ensure we don't exceed the sample_steps
+    timestep_indices = [min(i * step_size, sample_steps - 1) for i in range(num_timesteps)]
+    
+    # Remove duplicates while preserving order
+    timestep_indices = sorted(list(set(timestep_indices)), reverse=True)
+    
+    for i in tqdm(timestep_indices, 
                  desc='Sampling time steps', 
-                 total=timesteps, 
+                 total=len(timestep_indices), 
                  leave=progress_bar_leave, 
                  position=progress_bar_position):
         t = torch.full((b,), i, device=device, dtype=torch.long)

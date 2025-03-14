@@ -19,7 +19,9 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
     - [CPU Mode](#cpu-mode)
     - [Testing](#testing)
   - [⚙️ Configuration](#️-configuration)
+  - [🏗️ UNet Architecture Specifications](#️-unet-architecture-specifications)
   - [📊 Analysis Outputs](#-analysis-outputs)
+    - [Trajectory Comparison Visualization](#trajectory-comparison-visualization)
   - [❓ Troubleshooting](#-troubleshooting)
   - [📄 License](#-license)
   - [📝 Citation](#-citation)
@@ -27,6 +29,8 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
 ## 🔍 Overview
 
 This toolkit enables detailed comparison between teacher diffusion models and student models of varying sizes. It answers the question: "How does model size impact the quality, efficiency, and behavior of diffusion models?"
+
+The toolkit includes advanced visualization tools for comparing model trajectories in latent space, providing insights into how different-sized models traverse the denoising process. By using consistent reference frames for PCA visualization, the toolkit ensures accurate and meaningful comparisons between teacher and student models.
 
 ## ✨ Features
 
@@ -36,6 +40,8 @@ This toolkit enables detailed comparison between teacher diffusion models and st
 - **Detailed visualizations**: Charts showing performance trends
 - **Comprehensive metrics**: Trajectory analysis, FID scores, efficiency measurements
 - **Multi-device support**: CUDA, MPS, CPU
+- **Trajectory comparison**: PCA-based visualization of model trajectories with consistent reference frames
+- **Deterministic verification**: Tools to verify trajectory determinism and model consistency
 
 ## 📦 Installation
 
@@ -256,6 +262,31 @@ All analysis results are organized in the `output/analysis/` directory:
 - **Dimensionality Reduction** (`dimensionality/`): PCA, t-SNE, and UMAP projections
 - **Attention Analysis** (`attention/`): Attention map visualizations
 - **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
+- **Trajectory Comparison** (`trajectory_comparison/`): Direct visual comparison of teacher and student model trajectories
+
+### Trajectory Comparison Visualization
+
+The trajectory comparison module provides a direct visual comparison of how teacher and student models traverse the latent space during the denoising process. Key features include:
+
+- **PCA-based Visualization**: Reduces high-dimensional trajectories to 2D and 3D visualizations for easy interpretation
+- **Consistent Reference Frame**: Uses the teacher model's trajectory as the reference frame for PCA, ensuring proper alignment between trajectories
+- **MSE Verification**: Calculates and reports the Mean Squared Error between trajectories to quantify similarity
+- **Deterministic Trajectories**: Ensures reproducible results by using fixed random seeds for noise generation
+- **Size Factor Comparison**: Allows comparison of trajectories across different student model size factors
+
+This visualization is particularly useful for understanding how well student models mimic the teacher's behavior in latent space. For size factor 1.0, trajectories should be nearly identical, while smaller models may show deviations that help explain performance differences.
+
+To run a trajectory comparison:
+
+```bash
+python scripts/run_trajectory_comparison.py --size_factors 0.3,1.0
+```
+
+For verification of trajectory determinism:
+
+```bash
+python scripts/run_trajectory_verification.py
+```
 
 ## ❓ Troubleshooting
 

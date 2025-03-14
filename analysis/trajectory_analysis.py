@@ -162,7 +162,7 @@ def run_trajectory_analysis(teacher_model, student_models, test_samples, config)
     Args:
         teacher_model: The teacher diffusion model
         student_models: Dictionary of student models
-        test_samples: Test dataset samples
+        test_samples: Test dataset samples (ignored, using random noise instead)
         config: Configuration object
     """
     print("\nRunning trajectory analysis...")
@@ -174,27 +174,67 @@ def run_trajectory_analysis(teacher_model, student_models, test_samples, config)
         teacher_trajectories = []
         student_trajectories = []
         
-        sample_count = min(5, len(test_samples))
+        # Ensure consistent image resolution
+        image_size = config.image_size
+        print(f"Using consistent image size of {image_size}x{image_size} for all models")
+        
+        # Number of trajectories to generate
+        sample_count = 5
+        
+        # Set a fixed seed for reproducibility
+        torch.manual_seed(42)
+        
+        # Get device from models
+        device = next(teacher_model.parameters()).device
+        
         for i in range(sample_count):
             with torch.no_grad():
-                # Teacher trajectory
-                x = test_samples[i:i+1]
+                # Start with random noise for both teacher and student
+                noise = torch.randn(1, config.channels, image_size, image_size, device=device)
+                
+                # Calculate step size to evenly distribute the timesteps across sample steps
+                step_size = config.sample_steps // config.timesteps
+                
+                # Select the timesteps to use (evenly spaced) - SAME for both models
+                timestep_indices = [i * step_size for i in range(config.timesteps)]
+                if timestep_indices[-1] != config.sample_steps - 1:
+                    timestep_indices.append(config.sample_steps - 1)  # Ensure we include the last step
+                
+                # Teacher trajectory - standard denoising process (noise to clean)
+                x_teacher = noise.clone()
                 teacher_traj = []
-                for t in reversed(range(config.timesteps)):
-                    t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
-                    teacher_traj.append((x.clone(), t))
-                    pred = teacher_model(x, t_batch)
-                    x = pred
+                
+                for t in reversed(timestep_indices):
+                    t_batch = torch.full((1,), t, device=x_teacher.device, dtype=torch.long)
+                    # Store current state with timestep
+                    teacher_traj.append((x_teacher.clone(), t))
+                    # Apply denoising step
+                    pred = teacher_model(x_teacher, t_batch)
+                    # Ensure consistent image resolution
+                    if pred.shape[2] != image_size or pred.shape[3] != image_size:
+                        pred = torch.nn.functional.interpolate(
+                            pred, size=(image_size, image_size), mode='bilinear', align_corners=True
+                        )
+                    x_teacher = pred
                 teacher_trajectories.append(teacher_traj)
                 
-                # Student trajectory
-                x = test_samples[i:i+1]
+                # Student trajectory - standard denoising process (noise to clean)
+                x_student = noise.clone()
                 student_traj = []
-                for t in reversed(range(config.student_steps)):
-                    t_batch = torch.full((1,), t, device=x.device, dtype=torch.long)
-                    student_traj.append((x.clone(), t))
-                    pred = student_model(x, t_batch)
-                    x = pred
+                
+                # Use the SAME timestep indices as the teacher
+                for t in reversed(timestep_indices):
+                    t_batch = torch.full((1,), t, device=x_student.device, dtype=torch.long)
+                    # Store current state with timestep
+                    student_traj.append((x_student.clone(), t))
+                    # Apply denoising step
+                    pred = student_model(x_student, t_batch)
+                    # Ensure consistent image resolution
+                    if pred.shape[2] != image_size or pred.shape[3] != image_size:
+                        pred = torch.nn.functional.interpolate(
+                            pred, size=(image_size, image_size), mode='bilinear', align_corners=True
+                        )
+                    x_student = pred
                 student_trajectories.append(student_traj)
         
         # Create save directory for this model size
