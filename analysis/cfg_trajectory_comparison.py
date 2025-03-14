@@ -83,12 +83,13 @@ def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, see
         alpha_cumprod = alphas_cumprod[i]
         beta = diffusion_params['betas'][i]
         
+        # Only add noise if not at the final step
         if i > 0:
             noise = torch.randn_like(x)
+            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
         else:
-            noise = torch.zeros_like(x)
-            
-        x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
+            # For the final step, don't add noise to get a deterministic output
+            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred)
         
         # Record the current state
         trajectory.append(x.detach().cpu())
@@ -133,12 +134,13 @@ def generate_trajectory_without_cfg(model, noise, timesteps, device, seed=None):
         alpha_cumprod = alphas_cumprod[i]
         beta = diffusion_params['betas'][i]
         
+        # Only add noise if not at the final step
         if i > 0:
             noise = torch.randn_like(x)
+            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
         else:
-            noise = torch.zeros_like(x)
-            
-        x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred) + torch.sqrt(beta) * noise
+            # For the final step, don't add noise to get a deterministic output
+            x = (1 / torch.sqrt(alpha)) * (x - ((1 - alpha) / torch.sqrt(1 - alpha_cumprod)) * pred)
         
         # Record the current state
         trajectory.append(x.detach().cpu())
