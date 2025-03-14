@@ -19,8 +19,14 @@ class SinusoidalPositionEmbeddings(nn.Module):
         half_dim = max(half_dim, 1)
         embeddings = math.log(10000) / (half_dim - 1 + 1e-8)  # Add small epsilon to avoid division by zero
         embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        
+        # Ensure time has shape (batch_size,)
+        if time.dim() > 1:
+            time = time.squeeze(-1)  # Remove extra dimensions
+        
         embeddings = time[:, None] * embeddings[None, :]
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        
         # Pad or trim to match the original requested dimension
         if embeddings.shape[-1] != self.dim:
             if embeddings.shape[-1] < self.dim:
