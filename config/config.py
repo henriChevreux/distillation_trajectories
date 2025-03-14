@@ -48,17 +48,20 @@ class Config:
         self.data_dir = os.path.join(self.base_dir, "data")
         self.trajectory_dir = os.path.join(self.data_dir, "trajectories")
         
-        # Analysis directories
+        # Analysis directories - consolidated under analysis directory
         self.analysis_dir = os.path.join(self.output_dir, "analysis")
+        
+        # Analysis subdirectories - reorganized for clarity
         self.metrics_dir = os.path.join(self.analysis_dir, "metrics")
-        self.visualization_dir = os.path.join(self.analysis_dir, "visualization")
-        self.dimensionality_dir = os.path.join(self.analysis_dir, "dimensionality")
-        self.attention_dir = os.path.join(self.analysis_dir, "attention")
-        self.noise_dir = os.path.join(self.analysis_dir, "noise")
-        self.fid_dir = os.path.join(self.analysis_dir, "fid")
+        self.model_comparisons_dir = os.path.join(self.analysis_dir, "model_comparisons")
         self.time_dependent_dir = os.path.join(self.analysis_dir, "time_dependent")
         self.size_dependent_dir = os.path.join(self.analysis_dir, "size_dependent")
-        self.convergence_dir = os.path.join(self.time_dependent_dir, "convergence_analysis")
+        self.dimensionality_dir = os.path.join(self.analysis_dir, "dimensionality")
+        self.latent_space_dir = os.path.join(self.analysis_dir, "latent_space")
+        self.attention_dir = os.path.join(self.analysis_dir, "attention")
+        self.noise_prediction_dir = os.path.join(self.analysis_dir, "noise_prediction")
+        self.denoising_dir = os.path.join(self.analysis_dir, "denoising")
+        self.fid_dir = os.path.join(self.analysis_dir, "fid")
         
         # Distillation
         self.distill = True
@@ -101,24 +104,21 @@ class Config:
             self.student_models_dir,
             self.data_dir,
             self.trajectory_dir,
-            self.analysis_dir,
         ]
         
-        # Create analysis subdirectories
-        analysis_subdirs = [
+        # Create analysis directory and subdirectories
+        analysis_dirs = [
+            self.analysis_dir,
             self.metrics_dir,
-            self.visualization_dir,
-            self.dimensionality_dir,
-            self.attention_dir,
-            self.noise_dir,
-            self.fid_dir,
+            self.model_comparisons_dir,
             self.time_dependent_dir,
             self.size_dependent_dir,
-        ]
-        
-        # Create time-dependent subdirectories
-        time_dependent_subdirs = [
-            self.convergence_dir,
+            self.dimensionality_dir,
+            self.latent_space_dir,
+            self.attention_dir,
+            self.noise_prediction_dir,
+            self.denoising_dir,
+            self.fid_dir,
         ]
         
         # Create student model size directories
@@ -128,7 +128,7 @@ class Config:
             student_size_dirs.append(size_dir)
         
         # Create all directories
-        all_dirs = directories + analysis_subdirs + time_dependent_subdirs + student_size_dirs
+        all_dirs = directories + analysis_dirs + student_size_dirs
         for dir_path in all_dirs:
             try:
                 os.makedirs(dir_path, exist_ok=True)

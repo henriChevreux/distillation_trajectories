@@ -22,7 +22,7 @@ def plot_mse_vs_size(metrics, config, save_dir=None):
     print("Plotting MSE vs model size...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "size_dependent")
+        save_dir = config.size_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     
@@ -108,7 +108,7 @@ def plot_metrics_vs_size(metrics, config, save_dir=None):
     print("Plotting metrics vs model size...")
     
     if save_dir is None:
-        save_dir = os.path.join(config.output_dir, "size_dependent")
+        save_dir = config.size_dependent_dir
     
     os.makedirs(save_dir, exist_ok=True)
     

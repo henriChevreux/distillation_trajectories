@@ -21,19 +21,15 @@
 This document provides an assessment of the trajectory comparison metrics used in our diffusion model knowledge distillation project. The analysis evaluates the appropriateness of the current metrics for assessing similarity between teacher and student model trajectories, validates them against relevant literature, and offers recommendations for potential improvements.
 
 \section{Current Metrics Implementation}
-Our codebase currently implements four primary metrics to evaluate trajectory alignment between teacher and student diffusion models:
+Our codebase implements a set of metrics specifically designed to evaluate trajectory alignment between teacher and student diffusion models. These metrics focus exclusively on comparing student trajectories to teacher trajectories, rather than to original images or ground truth values:
 
-\subsection{Path Length Ratio}
-This metric compares the total path length traversed by the student model to that of the teacher model:
+\subsection{Path Length Similarity}
+This metric measures how similar the path lengths of the student and teacher models are:
 \begin{equation}
-\text{Path Length Ratio} = \frac{\text{Student Path Length}}{\text{Teacher Path Length}}
+\text{Path Length Similarity} = \frac{\min(\text{Student Path Length}, \text{Teacher Path Length})}{\max(\text{Student Path Length}, \text{Teacher Path Length})}
 \end{equation}
 
-The path length for each model is calculated as:
-\begin{equation}
-\text{Path Length} = \sum_{i=1}^{n-1} \| \mathbf{x}_i - \mathbf{x}_{i-1} \|_2
-\end{equation}
-where $\mathbf{x}_i$ represents the latent state at timestep $i$.
+A value close to 1.0 indicates that both models traverse similar total distances through latent space. This is more informative than a simple ratio, as it penalizes both shorter and longer paths equally.
 
 \subsection{Endpoint Distance}
 Measures the Euclidean distance between the final images produced by the student and teacher models:
@@ -41,21 +37,34 @@ Measures the Euclidean distance between the final images produced by the student
 \text{Endpoint Distance} = \| \mathbf{x}_{\text{student}}^{\text{final}} - \mathbf{x}_{\text{teacher}}^{\text{final}} \|_2
 \end{equation}
 
-\subsection{Path Efficiency}
-Evaluates how directly models move through latent space, calculated as:
-\begin{equation}
-\text{Path Efficiency} = \frac{\text{Endpoint Distance}}{\text{Path Length}}
-\end{equation}
-A higher efficiency score indicates a more direct path through the latent space.
+Lower values indicate higher fidelity of the student model's output to the teacher model's output.
 
-\subsection{Wasserstein Distance}
-Calculates the distribution similarity between trajectories at each step using the Wasserstein distance (also known as Earth Mover's Distance):
+\subsection{Directional Consistency}
+Evaluates how consistently the student model moves in the same direction as the teacher model throughout the diffusion process:
 \begin{equation}
-W(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}}) = \inf_{\gamma \in \Gamma(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}})} \mathbb{E}_{(x,y) \sim \gamma}[\|x - y\|]
+\text{Directional Consistency} = \frac{1}{n-1} \sum_{i=1}^{n-1} \cos(\theta_i)
 \end{equation}
-where $\Gamma(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}})$ is the set of all joint distributions with marginals $\mathbf{x}_{\text{teacher}}$ and $\mathbf{x}_{\text{student}}$.
+where $\cos(\theta_i)$ is the cosine similarity between the direction vectors of the teacher and student at step $i$.
 
-In our implementation, we approximate this by sampling 1000 random points from the flattened image distributions at each timestep.
+This metric ranges from -1 to 1, with 1 indicating perfect directional alignment between trajectories, 0 indicating orthogonal movement, and -1 indicating movement in opposite directions.
+
+\subsection{Distribution Similarity}
+Quantifies the similarity between trajectory distributions using the Wasserstein distance:
+\begin{equation}
+\text{Distribution Similarity} = \exp(-W(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}}))
+\end{equation}
+where $W(\mathbf{x}_{\text{teacher}}, \mathbf{x}_{\text{student}})$ is the mean Wasserstein distance between teacher and student trajectories.
+
+The exponential transformation maps the Wasserstein distance (where lower is better) to a similarity score between 0 and 1 (where higher is better).
+
+\subsection{Additional Supporting Metrics}
+We also compute several supporting metrics to provide a more comprehensive view of trajectory alignment:
+
+\begin{itemize}
+    \item \textbf{Position Difference}: The average Euclidean distance between teacher and student states at each timestep.
+    \item \textbf{Velocity Similarity}: How similar the step-by-step velocity profiles are between teacher and student.
+    \item \textbf{Path Efficiency}: How directly each model moves through latent space, calculated as the ratio of end-to-start distance to total path length.
+\end{itemize}
 
 \section{Academic Validation}
 

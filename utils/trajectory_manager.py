@@ -41,13 +41,13 @@ class TrajectoryManager:
     def _ensure_tensor_compatibility(self, tensor_or_batch):
         """
         Ensure tensor is in the correct format expected by diffusion models.
-        Makes tensors compatible with older PyTorch versions.
+        No longer reshapes tensors for older PyTorch versions.
         
         Args:
             tensor_or_batch: A tensor or batch of tensors
             
         Returns:
-            Tensor with the correct format (4D: [batch, channels, height, width])
+            Tensor with the correct format
         """
         if tensor_or_batch is None:
             return None
@@ -56,21 +56,10 @@ class TrajectoryManager:
             print(f"Warning: Input is not a tensor but {type(tensor_or_batch)}")
             return tensor_or_batch
         
-        # Print original shape for debugging
-        original_shape = tensor_or_batch.shape
+        # Print shape for debugging
+        print(f"Tensor shape: {tensor_or_batch.shape}")
         
-        # Make sure tensor has 4 dimensions [batch, channels, height, width]
-        if tensor_or_batch.dim() == 3:  # [channels, height, width]
-            # Add batch dimension
-            tensor_or_batch = tensor_or_batch.unsqueeze(0)
-            print(f"Fixed tensor shape: {original_shape} → {tensor_or_batch.shape}")
-        elif tensor_or_batch.dim() == 2:  # [height, width]
-            # Add batch and channel dimensions
-            tensor_or_batch = tensor_or_batch.unsqueeze(0).unsqueeze(0)
-            print(f"Fixed tensor shape: {original_shape} → {tensor_or_batch.shape}")
-        elif tensor_or_batch.dim() != 4:
-            print(f"Warning: Unusual tensor shape: {tensor_or_batch.shape}")
-        
+        # Return the tensor as-is without reshaping
         return tensor_or_batch
     
     def generate_trajectory(self, seed=None):
@@ -277,13 +266,10 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
-        # Ensure the sample has the correct dimensions (4D: batch, channels, height, width)
-        sample = self._ensure_tensor_compatibility(sample)
-        
-        # Use the provided sample as the starting point
+        # Move sample to device without reshaping
         x_teacher = sample.clone().to(self.device)
         
-        # Detect shapes for debugging
+        # Log information about the sample
         print(f"Sample shape for teacher: {x_teacher.shape}")
         
         # Generate teacher trajectory
@@ -335,7 +321,7 @@ class TrajectoryManager:
         else:
             x_student = sample.clone().to(self.device)
         
-        # Detect shapes for debugging
+        # Log information about the sample for the student
         print(f"Sample shape for student: {x_student.shape}")
         
         # Generate student trajectory
@@ -444,8 +430,9 @@ class TrajectoryManager:
         # Sort by sample index
         trajectory_files.sort(key=lambda x: int(x.split("_sample_")[1].split(".")[0]))
         
-        # Initialize metrics
+        # Initialize metrics with our new metrics
         all_metrics = {
+            # Original metrics
             'wasserstein_distances': [],
             'wasserstein_distances_per_timestep': [],
             'endpoint_distances': [],
@@ -453,6 +440,15 @@ class TrajectoryManager:
             'student_path_lengths': [],
             'teacher_efficiency': [],
             'student_efficiency': [],
+            
+            # New metrics
+            'path_length_similarity': [],
+            'efficiency_similarity': [],
+            'mean_velocity_similarity': [],
+            'mean_directional_consistency': [],
+            'mean_position_difference': [],
+            'distribution_similarity': [],
+            
             'architecture_type': []
         }
         
@@ -477,7 +473,7 @@ class TrajectoryManager:
                 # Compute metrics for this trajectory pair
                 metrics = compute_trajectory_metrics(t_traj, s_traj, self.config)
                 
-                # Add to aggregated metrics
+                # Add original metrics
                 all_metrics['wasserstein_distances'].append(metrics['mean_wasserstein'])
                 all_metrics['wasserstein_distances_per_timestep'].append(metrics['wasserstein_distances'])
                 all_metrics['endpoint_distances'].append(metrics['endpoint_distance'])
@@ -486,14 +482,44 @@ class TrajectoryManager:
                 all_metrics['teacher_efficiency'].append(metrics['teacher_efficiency'])
                 all_metrics['student_efficiency'].append(metrics['student_efficiency'])
                 
+                # Add new metrics
+                if 'path_length_similarity' in metrics:
+                    all_metrics['path_length_similarity'].append(metrics['path_length_similarity'])
+                
+                if 'efficiency_similarity' in metrics:
+                    all_metrics['efficiency_similarity'].append(metrics['efficiency_similarity'])
+                
+                if 'mean_velocity_similarity' in metrics:
+                    all_metrics['mean_velocity_similarity'].append(metrics['mean_velocity_similarity'])
+                
+                if 'mean_directional_consistency' in metrics:
+                    all_metrics['mean_directional_consistency'].append(metrics['mean_directional_consistency'])
+                
+                if 'mean_position_difference' in metrics:
+                    all_metrics['mean_position_difference'].append(metrics['mean_position_difference'])
+                
+                if 'distribution_similarity' in metrics:
+                    all_metrics['distribution_similarity'].append(metrics['distribution_similarity'])
+                
                 # Add architecture type if available
                 if hasattr(self, 'architecture_type'):
                     all_metrics['architecture_type'].append(self.architecture_type)
         
         # Compute averages for scalar metrics
-        for key in ['endpoint_distances', 'teacher_path_lengths', 'student_path_lengths', 'teacher_efficiency', 'student_efficiency', 'wasserstein_distances']:
+        # Include all original metrics for backward compatibility
+        for key in ['endpoint_distances', 'teacher_path_lengths', 'student_path_lengths', 
+                   'teacher_efficiency', 'student_efficiency', 'wasserstein_distances']:
             if key in all_metrics and all_metrics[key]:
                 all_metrics[key + '_avg'] = sum(all_metrics[key]) / len(all_metrics[key])
+        
+        # Compute averages for new metrics
+        for key in ['path_length_similarity', 'efficiency_similarity', 'mean_velocity_similarity', 
+                   'mean_directional_consistency', 'mean_position_difference', 'distribution_similarity']:
+            if key in all_metrics and all_metrics[key]:
+                all_metrics[key + '_avg'] = sum(all_metrics[key]) / len(all_metrics[key])
+                # Also save with simpler names for compatibility with radar plots
+                if key + '_avg' not in all_metrics:
+                    all_metrics[key] = all_metrics[key + '_avg']
         
         return all_metrics
 
@@ -512,16 +538,7 @@ def generate_trajectories_with_disk_storage(teacher_model, student_model, config
     Returns:
         trajectory_manager: TrajectoryManager object
     """
-    # Handle tensor compatibility preemptively
-    if fixed_samples is not None:
-        # Make a simple compatibility check just to avoid duplicate work
-        # The TrajectoryManager will do a more thorough check
-        if isinstance(fixed_samples, torch.Tensor) and fixed_samples.dim() == 3:
-            print(f"Pre-processing fixed samples with shape {fixed_samples.shape} in generate_trajectories_with_disk_storage")
-            fixed_samples = fixed_samples.unsqueeze(0)
-            print(f"New fixed samples shape: {fixed_samples.shape}")
-    
-    # Create trajectory manager
+    # Create trajectory manager without reshaping tensors
     trajectory_manager = TrajectoryManager(teacher_model, student_model, config, size_factor, fixed_samples)
     
     # Check if trajectories already exist
