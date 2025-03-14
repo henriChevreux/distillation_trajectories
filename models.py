@@ -123,6 +123,13 @@ class DiffusionUNet(nn.Module):
             nn.ReLU()
         )
         
+        # Condition embedding (for classifier-free guidance)
+        self.cond_emb = nn.Sequential(
+            nn.Linear(1, self.time_emb_dim),
+            nn.ReLU(),
+            nn.Linear(self.time_emb_dim, self.time_emb_dim)
+        )
+        
         # Downsampling and upsampling
         self.pool = nn.MaxPool2d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
@@ -149,7 +156,7 @@ class DiffusionUNet(nn.Module):
         # Final layer
         self.final = nn.Conv2d(self.dims[0], self.channels, 1)
     
-    def forward(self, x, t):
+    def forward(self, x, t, cond=None):
         """
         Forward pass through the U-Net
         
@@ -158,6 +165,11 @@ class DiffusionUNet(nn.Module):
         
         All models (teacher and students) follow the same resolution flow,
         ensuring consistent output dimensions.
+        
+        Args:
+            x: Input tensor [B, C, H, W]
+            t: Timestep tensor [B]
+            cond: Conditioning tensor [B, 1] for classifier-free guidance (optional)
         """
         # Time embedding
         t = t.unsqueeze(-1) if t.dim() == 1 else t
@@ -165,6 +177,12 @@ class DiffusionUNet(nn.Module):
         if t.dim() > 2:
             t = t.view(t.size(0), -1)[:, 0:1]
         time_emb = self.time_mlp(t)
+        
+        # Condition embedding (if provided)
+        if cond is not None:
+            cond_emb = self.cond_emb(cond)
+            # Add condition embedding to time embedding
+            time_emb = time_emb + cond_emb
         
         # Encoder
         x1 = self.enc1(x, time_emb)

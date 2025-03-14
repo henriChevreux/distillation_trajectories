@@ -134,24 +134,35 @@ def distill_diffusion_model(teacher_model, config, teacher_params, student_param
             # Create noisy images based on the teacher's diffusion process
             with torch.no_grad():
                 x_noisy, noise = q_sample(images, t_teacher, teacher_params)
-                # Get teacher's predicted noise
-                teacher_pred = teacher_model(x_noisy, t_teacher)
+                # Get teacher's predicted noise for both conditional and unconditional
+                teacher_pred_cond = teacher_model(x_noisy, t_teacher, cond=torch.ones(images.shape[0], 1).to(device))
+                teacher_pred_uncond = teacher_model(x_noisy, t_teacher, cond=None)
             
-            # Student tries to match teacher's prediction
-            student_pred = student_model(x_noisy, t_student)
+            # Student tries to match teacher's predictions for both conditional and unconditional
+            student_pred_cond = student_model(x_noisy, t_student, cond=torch.ones(images.shape[0], 1).to(device))
+            student_pred_uncond = student_model(x_noisy, t_student, cond=None)
             
-            # Ensure student prediction has the same size as teacher prediction
-            if student_pred.shape != teacher_pred.shape:
-                # Resize student prediction to match teacher prediction
-                student_pred = F.interpolate(
-                    student_pred, 
-                    size=(teacher_pred.shape[2], teacher_pred.shape[3]),
+            # Ensure student predictions have the same size as teacher predictions
+            if student_pred_cond.shape != teacher_pred_cond.shape:
+                student_pred_cond = F.interpolate(
+                    student_pred_cond, 
+                    size=(teacher_pred_cond.shape[2], teacher_pred_cond.shape[3]),
+                    mode='bilinear', 
+                    align_corners=True
+                )
+                student_pred_uncond = F.interpolate(
+                    student_pred_uncond, 
+                    size=(teacher_pred_uncond.shape[2], teacher_pred_uncond.shape[3]),
                     mode='bilinear', 
                     align_corners=True
                 )
             
-            # MSE loss between student and teacher predictions
-            loss = F.mse_loss(student_pred, teacher_pred)
+            # MSE loss between student and teacher predictions for both conditional and unconditional
+            loss_cond = F.mse_loss(student_pred_cond, teacher_pred_cond)
+            loss_uncond = F.mse_loss(student_pred_uncond, teacher_pred_uncond)
+            
+            # Total loss is the average of conditional and unconditional losses
+            loss = (loss_cond + loss_uncond) / 2
             
             # Remove the diversity loss that compares with true noise
             # We want to focus solely on matching the teacher's trajectory

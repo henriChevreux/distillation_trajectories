@@ -78,24 +78,39 @@ def q_sample(x_start, t, diffusion_params):
     
     return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise, noise
 
-def p_losses(denoise_model, x_start, t, diffusion_params, noise=None):
+def p_losses(denoise_model, x_start, t, diffusion_params, cond=None):
     """
     Calculate loss for training the denoising model
+    
+    Args:
+        denoise_model: The diffusion model
+        x_start: Starting images
+        t: Timesteps
+        diffusion_params: Diffusion parameters
+        cond: Conditioning tensor (optional)
     """
     # Generate noisy image and get the noise that was used
     x_noisy, noise = q_sample(x_start, t, diffusion_params)
     
-    # Predict the noise
-    predicted_noise = denoise_model(x_noisy, t)
+    # Predict the noise with conditioning if provided
+    predicted_noise = denoise_model(x_noisy, t, cond)
     
     # Calculate loss using the actual noise that was added
     loss = F.mse_loss(predicted_noise, noise)
     return loss
 
 @torch.no_grad()
-def p_sample(model, x, t, t_index, diffusion_params):
+def p_sample(model, x, t, t_index, diffusion_params, guidance_scale=1.0):
     """
-    Sample from p(x_{t-1} | x_t) - single step denoising
+    Sample from p(x_{t-1} | x_t) - single step denoising with classifier-free guidance
+    
+    Args:
+        model: The diffusion model
+        x: Current noisy image
+        t: Current timestep
+        t_index: Index of current timestep
+        diffusion_params: Diffusion parameters
+        guidance_scale: Scale factor for classifier-free guidance (1.0 means no guidance)
     """
     betas_t = extract(diffusion_params['betas'], t, x.shape)
     sqrt_one_minus_alphas_cumprod_t = extract(
@@ -103,66 +118,59 @@ def p_sample(model, x, t, t_index, diffusion_params):
     )
     sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
     
-    # Get model prediction
-    model_output = model(x, t)
+    # Get model predictions for both conditional and unconditional
+    cond_output = model(x, t, cond=torch.ones(x.shape[0], 1, device=x.device))
+    uncond_output = model(x, t, cond=None)
+    
+    # Apply classifier-free guidance
+    model_output = uncond_output + guidance_scale * (cond_output - uncond_output)
     
     # Ensure model output has the same size as input
     if model_output.shape != x.shape:
-        print(f"Size mismatch: model output {model_output.shape} != input {x.shape}")
         try:
-            # Try to use interpolation to resize the model output
             model_output = torch.nn.functional.interpolate(
                 model_output, 
                 size=(x.shape[2], x.shape[3]),
                 mode='bilinear', 
                 align_corners=True
             )
-            print(f"Resized model output to {model_output.shape}")
         except Exception as e:
-            print(f"Error resizing model output: {e}")
-            # If interpolation fails, try a more direct approach
             if model_output.dim() == x.dim():
-                # If dimensions match but sizes don't, try to pad or crop
                 if model_output.shape[2] < x.shape[2] or model_output.shape[3] < x.shape[3]:
-                    # Pad if model output is smaller
                     pad_h = max(0, x.shape[2] - model_output.shape[2])
                     pad_w = max(0, x.shape[3] - model_output.shape[3])
                     model_output = torch.nn.functional.pad(model_output, (0, pad_w, 0, pad_h))
                 else:
-                    # Crop if model output is larger
                     model_output = model_output[:, :, :x.shape[2], :x.shape[3]]
             else:
-                # If dimensions don't match, this is a more serious issue
                 raise ValueError(f"Cannot reconcile model output shape {model_output.shape} with input shape {x.shape}")
     
-    # Equation 11 in the DDPM paper
-    model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model_output / sqrt_one_minus_alphas_cumprod_t
-    )
+    # Previous mean
+    pred_original = model_output
     
-    if t_index == 0:
-        return model_mean
-    else:
-        posterior_variance_t = extract(diffusion_params['posterior_variance'], t, x.shape)
-        noise = torch.randn_like(x)
-        return model_mean + torch.sqrt(posterior_variance_t) * noise
+    # Direction pointing to x_t
+    pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred_original
+    
+    # Random noise
+    noise = torch.randn_like(x) if t_index > 0 else 0.
+    
+    # Final sample
+    return sqrt_recip_alphas_t * (x - pred_original_direction) + noise * betas_t
 
 @torch.no_grad()
-def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, config=None, track_trajectory=False):
+def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, config=None, track_trajectory=False, guidance_scale=1.0):
     """
-    Generate samples by iteratively denoising from pure noise
+    Generate samples by iteratively denoising from pure noise with classifier-free guidance
     
     Args:
         model: The diffusion model
         shape: Shape of the samples to generate
-        sample_steps: Number of sample steps in the diffusion process (typically 4000)
+        sample_steps: Number of sample steps in the diffusion process
         diffusion_params: Parameters for the diffusion process
-        device: Device to use (if None, will use the device of the model)
-        config: Configuration object (optional)
+        device: Device to use
+        config: Configuration object
         track_trajectory: Whether to track and return the trajectory
-    
-    Returns:
-        Generated samples, and optionally the trajectory
+        guidance_scale: Scale factor for classifier-free guidance (1.0 means no guidance)
     """
     if device is None:
         device = next(model.parameters()).device
@@ -172,12 +180,10 @@ def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, con
     img = torch.randn(shape, device=device)
     
     if track_trajectory:
-        # Track the trajectory through latent space
         trajectory = [img.detach().cpu()]
     
-    # Iteratively denoise
+    # Iteratively denoise with guidance
     from tqdm import tqdm
-    # Get progress bar settings from config if available
     progress_bar_leave = False
     progress_bar_position = 0
     
@@ -185,17 +191,9 @@ def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, con
         progress_bar_leave = getattr(config, 'progress_bar_leave', False)
         progress_bar_position = getattr(config, 'progress_bar_position', 0)
     
-    # Use the actual number of timesteps from config if available, otherwise use sample_steps
     num_timesteps = config.timesteps if config else sample_steps
-    
-    # Calculate step size to evenly distribute the timesteps
     step_size = max(1, sample_steps // num_timesteps)
-    
-    # Select the timesteps to use (evenly spaced)
-    # Ensure we don't exceed the sample_steps
     timestep_indices = [min(i * step_size, sample_steps - 1) for i in range(num_timesteps)]
-    
-    # Remove duplicates while preserving order
     timestep_indices = sorted(list(set(timestep_indices)), reverse=True)
     
     for i in tqdm(timestep_indices, 
@@ -204,7 +202,7 @@ def p_sample_loop(model, shape, sample_steps, diffusion_params, device=None, con
                  leave=progress_bar_leave, 
                  position=progress_bar_position):
         t = torch.full((b,), i, device=device, dtype=torch.long)
-        img = p_sample(model, img, t, i, diffusion_params)
+        img = p_sample(model, img, t, i, diffusion_params, guidance_scale=guidance_scale)
         
         if track_trajectory:
             trajectory.append(img.detach().cpu())
