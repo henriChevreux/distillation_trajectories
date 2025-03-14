@@ -25,13 +25,53 @@ class TrajectoryManager:
         self.student_model = student_model
         self.config = config
         self.size_factor = size_factor
-        self.fixed_samples = fixed_samples
+        
+        # Ensure fixed samples have the correct format
+        if fixed_samples is not None:
+            self.fixed_samples = self._ensure_tensor_compatibility(fixed_samples)
+        else:
+            self.fixed_samples = None
         
         # Create trajectory directory if it doesn't exist
         os.makedirs(config.trajectory_dir, exist_ok=True)
         
         # Set device
         self.device = next(teacher_model.parameters()).device
+    
+    def _ensure_tensor_compatibility(self, tensor_or_batch):
+        """
+        Ensure tensor is in the correct format expected by diffusion models.
+        Makes tensors compatible with older PyTorch versions.
+        
+        Args:
+            tensor_or_batch: A tensor or batch of tensors
+            
+        Returns:
+            Tensor with the correct format (4D: [batch, channels, height, width])
+        """
+        if tensor_or_batch is None:
+            return None
+        
+        if not isinstance(tensor_or_batch, torch.Tensor):
+            print(f"Warning: Input is not a tensor but {type(tensor_or_batch)}")
+            return tensor_or_batch
+        
+        # Print original shape for debugging
+        original_shape = tensor_or_batch.shape
+        
+        # Make sure tensor has 4 dimensions [batch, channels, height, width]
+        if tensor_or_batch.dim() == 3:  # [channels, height, width]
+            # Add batch dimension
+            tensor_or_batch = tensor_or_batch.unsqueeze(0)
+            print(f"Fixed tensor shape: {original_shape} → {tensor_or_batch.shape}")
+        elif tensor_or_batch.dim() == 2:  # [height, width]
+            # Add batch and channel dimensions
+            tensor_or_batch = tensor_or_batch.unsqueeze(0).unsqueeze(0)
+            print(f"Fixed tensor shape: {original_shape} → {tensor_or_batch.shape}")
+        elif tensor_or_batch.dim() != 4:
+            print(f"Warning: Unusual tensor shape: {tensor_or_batch.shape}")
+        
+        return tensor_or_batch
     
     def generate_trajectory(self, seed=None):
         """
@@ -237,26 +277,37 @@ class TrajectoryManager:
         self.teacher_model.eval()
         self.student_model.eval()
         
+        # Ensure the sample has the correct dimensions (4D: batch, channels, height, width)
+        sample = self._ensure_tensor_compatibility(sample)
+        
         # Use the provided sample as the starting point
         x_teacher = sample.clone().to(self.device)
         
+        # Detect shapes for debugging
+        print(f"Sample shape for teacher: {x_teacher.shape}")
+        
         # Generate teacher trajectory
         teacher_trajectory = []
-        with torch.no_grad():
-            for t in range(self.config.teacher_steps - 1, -1, -1):
-                t_tensor = torch.tensor([t], device=self.device)
-                
-                # Store current state
-                teacher_trajectory.append((x_teacher.clone(), t))
-                
-                # Predict noise
-                noise_pred = self.teacher_model(x_teacher, t_tensor)
-                
-                # Update x
-                if t > 0:
-                    # Sample noise for the next step
-                    noise = torch.randn_like(x_teacher)
-                    x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
+        try:
+            with torch.no_grad():
+                for t in range(self.config.teacher_steps - 1, -1, -1):
+                    t_tensor = torch.tensor([t], device=self.device)
+                    
+                    # Store current state
+                    teacher_trajectory.append((x_teacher.clone(), t))
+                    
+                    # Predict noise
+                    noise_pred = self.teacher_model(x_teacher, t_tensor)
+                    
+                    # Update x
+                    if t > 0:
+                        # Sample noise for the next step
+                        noise = torch.randn_like(x_teacher)
+                        x_teacher = self._update_x(x_teacher, noise_pred, t, noise)
+        except Exception as e:
+            print(f"Error in teacher trajectory generation: {e}")
+            print(f"Teacher input tensor shape: {x_teacher.shape}")
+            raise
         
         # Reset to the same starting sample for student
         if seed is not None:
@@ -270,32 +321,45 @@ class TrajectoryManager:
         
         # Resize the sample if needed for the student model
         if student_image_size != self.config.image_size:
-            x_student = torch.nn.functional.interpolate(
-                sample.clone(),
-                size=(student_image_size, student_image_size),
-                mode='bilinear',
-                align_corners=True
-            ).to(self.device)
+            try:
+                x_student = torch.nn.functional.interpolate(
+                    sample.clone(),
+                    size=(student_image_size, student_image_size),
+                    mode='bilinear',
+                    align_corners=True
+                ).to(self.device)
+            except Exception as e:
+                print(f"Error resizing sample for student model: {e}")
+                print(f"Sample shape: {sample.shape}, Target size: {student_image_size}")
+                raise
         else:
             x_student = sample.clone().to(self.device)
         
+        # Detect shapes for debugging
+        print(f"Sample shape for student: {x_student.shape}")
+        
         # Generate student trajectory
         student_trajectory = []
-        with torch.no_grad():
-            for t in range(self.config.student_steps - 1, -1, -1):
-                t_tensor = torch.tensor([t], device=self.device)
-                
-                # Store current state
-                student_trajectory.append((x_student.clone(), t))
-                
-                # Predict noise
-                noise_pred = self.student_model(x_student, t_tensor)
-                
-                # Update x
-                if t > 0:
-                    # Sample noise for the next step
-                    noise = torch.randn_like(x_student)
-                    x_student = self._update_x(x_student, noise_pred, t, noise)
+        try:
+            with torch.no_grad():
+                for t in range(self.config.student_steps - 1, -1, -1):
+                    t_tensor = torch.tensor([t], device=self.device)
+                    
+                    # Store current state
+                    student_trajectory.append((x_student.clone(), t))
+                    
+                    # Predict noise
+                    noise_pred = self.student_model(x_student, t_tensor)
+                    
+                    # Update x
+                    if t > 0:
+                        # Sample noise for the next step
+                        noise = torch.randn_like(x_student)
+                        x_student = self._update_x(x_student, noise_pred, t, noise)
+        except Exception as e:
+            print(f"Error in student trajectory generation: {e}")
+            print(f"Student input tensor shape: {x_student.shape}")
+            raise
         
         # Resize student trajectory images to match teacher size if needed
         if student_image_size != self.config.image_size:
@@ -448,6 +512,15 @@ def generate_trajectories_with_disk_storage(teacher_model, student_model, config
     Returns:
         trajectory_manager: TrajectoryManager object
     """
+    # Handle tensor compatibility preemptively
+    if fixed_samples is not None:
+        # Make a simple compatibility check just to avoid duplicate work
+        # The TrajectoryManager will do a more thorough check
+        if isinstance(fixed_samples, torch.Tensor) and fixed_samples.dim() == 3:
+            print(f"Pre-processing fixed samples with shape {fixed_samples.shape} in generate_trajectories_with_disk_storage")
+            fixed_samples = fixed_samples.unsqueeze(0)
+            print(f"New fixed samples shape: {fixed_samples.shape}")
+    
     # Create trajectory manager
     trajectory_manager = TrajectoryManager(teacher_model, student_model, config, size_factor, fixed_samples)
     

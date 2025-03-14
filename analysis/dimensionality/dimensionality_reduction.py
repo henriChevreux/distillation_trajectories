@@ -24,21 +24,57 @@ def extract_trajectory_features(trajectories):
     all_images = []
     all_timesteps = []
     
-    for trajectory in trajectories:
-        for img, timestep in trajectory:
+    # Check if trajectories is empty
+    if not trajectories:
+        print("  Warning: Empty trajectories provided. Returning default empty arrays.")
+        return np.array([]).reshape(0, 1), np.array([])
+    
+    # Print trajectory information for debugging
+    print(f"  Processing {len(trajectories)} trajectories")
+    
+    for i, trajectory in enumerate(trajectories):
+        if not trajectory:  # Skip empty trajectories
+            print(f"  Warning: Trajectory {i} is empty, skipping")
+            continue
+            
+        print(f"  Trajectory {i} has {len(trajectory)} points")
+        for j, (img, timestep) in enumerate(trajectory):
             # Convert to numpy and flatten
             if isinstance(img, torch.Tensor):
-                img = img.cpu().numpy()
+                try:
+                    img = img.cpu().numpy()
+                except Exception as e:
+                    print(f"  Error converting tensor to numpy for trajectory {i}, point {j}: {e}")
+                    continue
+            
+            # Print shape information for debugging
+            if j == 0:  # Only print for first point to avoid clutter
+                print(f"  Image shape for trajectory {i}: {img.shape}")
             
             # Flatten the image
-            img_flat = img.reshape(1, -1)
-            all_images.append(img_flat)
-            all_timesteps.append(timestep)
+            try:
+                img_flat = img.reshape(1, -1)
+                all_images.append(img_flat)
+                all_timesteps.append(timestep)
+            except Exception as e:
+                print(f"  Error flattening image for trajectory {i}, point {j}: {e}")
+                continue
+    
+    # Check if we have any valid images
+    if not all_images:
+        print("  Warning: No valid images found in trajectories. Returning empty arrays.")
+        return np.array([]).reshape(0, 1), np.array([])
     
     # Stack all flattened images
-    features = np.vstack(all_images)
-    timesteps = np.array(all_timesteps)
-    
+    try:
+        features = np.vstack(all_images)
+        timesteps = np.array(all_timesteps)
+    except Exception as e:
+        print(f"  Error stacking features: {e}")
+        # Return empty arrays as fallback
+        return np.array([]).reshape(0, 1), np.array([])
+        
+    print(f"  Extracted features shape: {features.shape}")
     return features, timesteps
 
 def perform_pca(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor):
@@ -54,6 +90,24 @@ def perform_pca(teacher_features, student_features, teacher_timesteps, student_t
         size_factor: Size factor of the student model for labeling
     """
     print("  Performing PCA...")
+    
+    # Check if the features have different dimensions
+    if teacher_features.shape[1] != student_features.shape[1]:
+        print(f"  Warning: Feature dimensions don't match - teacher: {teacher_features.shape[1]}, student: {student_features.shape[1]}")
+        
+        # Determine which has more features (usually the teacher)
+        if teacher_features.shape[1] > student_features.shape[1]:
+            # Pad student features with zeros
+            padding_size = teacher_features.shape[1] - student_features.shape[1]
+            student_features_padded = np.pad(student_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded student features from {student_features.shape} to {student_features_padded.shape}")
+            student_features = student_features_padded
+        else:
+            # Pad teacher features with zeros
+            padding_size = student_features.shape[1] - teacher_features.shape[1]
+            teacher_features_padded = np.pad(teacher_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded teacher features from {teacher_features.shape} to {teacher_features_padded.shape}")
+            teacher_features = teacher_features_padded
     
     # Combine features for PCA fitting
     combined_features = np.vstack([teacher_features, student_features])
@@ -287,6 +341,16 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
     
     print(f"Performing dimensionality reduction analysis for size factor {size_factor}...")
     
+    # Check for empty trajectory lists
+    if not teacher_trajectories or not student_trajectories:
+        print(f"  WARNING: Empty trajectory list provided - teacher: {len(teacher_trajectories)}, student: {len(student_trajectories)}")
+        print("  Skipping dimensionality reduction analysis.")
+        return {"status": "skipped", "reason": "empty_trajectories"}
+    
+    # Print trajectory information for debugging
+    print(f"  Teacher trajectories: {len(teacher_trajectories)}")
+    print(f"  Student trajectories: {len(student_trajectories)}")
+    
     # Extract features from trajectories
     teacher_features, teacher_timesteps = extract_trajectory_features(teacher_trajectories)
     student_features, student_timesteps = extract_trajectory_features(student_trajectories)
@@ -294,30 +358,28 @@ def dimensionality_reduction_analysis(teacher_trajectories, student_trajectories
     # Check if we have enough data
     if len(teacher_features) < 2 or len(student_features) < 2:
         print("  Not enough trajectory data for dimensionality reduction analysis.")
-        return {"status": "insufficient_data"}
+        print(f"  Teacher features: {teacher_features.shape}, Student features: {student_features.shape}")
+        return {"status": "skipped", "reason": "insufficient_data"}
     
-    # Perform PCA
-    perform_pca(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
-    
-    # Perform t-SNE
-    perform_tsne(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
-    
-    # Visualize trajectory comparison
-    visualize_trajectory_comparison(teacher_trajectories, student_trajectories, output_dir, size_factor)
-    
-    # Calculate and save metrics
-    results = {
-        "teacher_feature_dim": teacher_features.shape[1],
-        "student_feature_dim": student_features.shape[1],
-        "teacher_trajectory_count": len(teacher_trajectories),
-        "student_trajectory_count": len(student_trajectories),
-        "teacher_points_count": len(teacher_features),
-        "student_points_count": len(student_features)
-    }
-    
-    # Save metrics
-    with open(os.path.join(output_dir, f"dimensionality_metrics_size_{size_factor}.txt"), "w") as f:
-        for key, value in results.items():
-            f.write(f"{key}: {value}\n")
-    
-    return results 
+    # Check if one of the arrays is empty
+    if teacher_features.size == 0 or student_features.size == 0:
+        print("  One of the feature sets is empty. Skipping dimensionality reduction.")
+        print(f"  Teacher features: {teacher_features.shape}, Student features: {student_features.shape}")
+        return {"status": "skipped", "reason": "empty_features"}
+        
+    # Create visualizations
+    try:
+        perform_pca(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
+        perform_tsne(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
+        
+        # If we have a teacher and student trajectory, visualize one of them
+        if teacher_trajectories and student_trajectories:
+            visualize_trajectory_comparison(teacher_trajectories, student_trajectories, output_dir, size_factor)
+        
+        return {"status": "success"}
+    except Exception as e:
+        print(f"  Error during dimensionality reduction: {e}")
+        # Print more detailed error information
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)} 

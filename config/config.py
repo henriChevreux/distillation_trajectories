@@ -7,23 +7,30 @@ class Config:
     def __init__(self):
         # Dataset
         self.dataset = "CIFAR10"
-        self.image_size = 16
+        self.image_size = 32  # Updated to 32x32 for CIFAR10
         self.channels = 3
-        self.batch_size = 64
+        self.batch_size = 128  # Updated to 128 as per specifications
         
         # Model
-        self.latent_dim = 64
-        self.hidden_dims = [64, 128, 256]
+        self.latent_dim = 128  # Updated to 128 base channels
+        self.hidden_dims = [128, 256, 256, 256]  # Updated to reflect [1, 2, 2, 2] channel multipliers
+        self.dropout = 0.3  # Added dropout parameter
+        self.num_res_blocks = 3  # Added number of residual blocks
+        self.learn_sigma = True  # Added learn sigma parameter
         
         # Diffusion process
-        self.timesteps = 50
+        self.timesteps = 4000  # Updated to 4000 diffusion steps
         self.beta_start = 1e-4
         self.beta_end = 0.02
+        self.noise_schedule = "cosine"  # Added noise schedule parameter
         
         # Training
         self.epochs = 10
         self.lr = 1e-4
         self.save_interval = 1
+        self.adam_beta1 = 0.8  # Added Adam beta1 parameter
+        self.adam_beta2 = 0.999  # Added Adam beta2 parameter
+        self.ema_rate = 0.9999  # Added EMA rate parameter
         
         # Directories - organized by purpose
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -55,18 +62,18 @@ class Config:
         
         # Distillation
         self.distill = True
-        self.teacher_steps = 50
-        self.student_steps = 50
+        self.teacher_steps = self.timesteps  # Using the same timesteps for both teacher and student
+        self.student_steps = self.timesteps  # Using the same timesteps for both teacher and student
         
         # Student model size factors
-        self.student_size_factors = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        self.student_size_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
         
-        # Student model architecture variants
+        # Student model architecture variants - updated to match proper channel dimensions 
         self.student_architectures = {
             'tiny': [32, 64],           # 2 layers instead of 3
             'small': [32, 64, 128],     # 3 layers but smaller dimensions
             'medium': [48, 96, 192],    # 3 layers with 75% of teacher dimensions
-            'full': [64, 128, 256]      # Same as teacher
+            'full': [128, 256, 256, 256]      # Same as teacher - updated to match base channels of 128
         }
         
         # Progress bar configuration

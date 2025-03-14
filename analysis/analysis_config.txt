@@ -1,7 +1,8 @@
-teacher_model: model_epoch_1.pt
-student_model: student_model_epoch_1.pt
+teacher_model: None
+student_model: None
 analysis_dir: analysis
-num_samples: 5
+num_samples: 50
+force_dataset_reload: False
 teacher_steps: 50
 student_steps: 50
 skip_metrics: False
@@ -11,6 +12,6 @@ skip_attention: False
 skip_3d: False
 run_fid: False
 only_denoising: False
-focus_size_range: None
+focus_size_range: 0.1
 compare_specific_sizes: None
 num_denoising_samples: 5

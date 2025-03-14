@@ -26,21 +26,56 @@ def extract_trajectory_features(trajectories):
     all_images = []
     all_timesteps = []
     
-    for trajectory in trajectories:
-        for img, timestep in trajectory:
+    # Check if trajectories is empty
+    if not trajectories:
+        print("  Warning: Empty trajectories provided for latent space visualization. Returning default empty arrays.")
+        return np.array([]).reshape(0, 1), np.array([])
+    
+    # Print trajectory information for debugging
+    print(f"  Processing {len(trajectories)} trajectories for latent space visualization")
+    
+    for i, trajectory in enumerate(trajectories):
+        if not trajectory:  # Skip empty trajectories
+            print(f"  Warning: Trajectory {i} is empty, skipping")
+            continue
+            
+        print(f"  Trajectory {i} has {len(trajectory)} points")
+        for j, (img, timestep) in enumerate(trajectory):
             # Convert to numpy and flatten
             if isinstance(img, torch.Tensor):
-                img = img.cpu().numpy()
+                try:
+                    img = img.cpu().numpy()
+                except Exception as e:
+                    print(f"  Error converting tensor to numpy for trajectory {i}, point {j}: {e}")
+                    continue
+            
+            # Print shape information for debugging (only first point to avoid clutter)
+            if j == 0:
+                print(f"  Image shape for trajectory {i}: {img.shape}")
             
             # Flatten the image
-            img_flat = img.reshape(1, -1)
-            all_images.append(img_flat)
-            all_timesteps.append(timestep)
+            try:
+                img_flat = img.reshape(1, -1)
+                all_images.append(img_flat)
+                all_timesteps.append(timestep)
+            except Exception as e:
+                print(f"  Error flattening image for trajectory {i}, point {j}: {e}")
+                continue
+    
+    # Check if we have any valid images
+    if not all_images:
+        print("  Warning: No valid images found in trajectories for latent space visualization. Returning empty arrays.")
+        return np.array([]).reshape(0, 1), np.array([])
     
     # Stack all flattened images
-    features = np.vstack(all_images)
-    timesteps = np.array(all_timesteps)
+    try:
+        features = np.vstack(all_images)
+        timesteps = np.array(all_timesteps)
+    except Exception as e:
+        print(f"  Error stacking features for latent space visualization: {e}")
+        return np.array([]).reshape(0, 1), np.array([])
     
+    print(f"  Extracted features shape for latent space: {features.shape}")
     return features, timesteps
 
 def create_3d_trajectory_plot(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor):
@@ -55,6 +90,24 @@ def create_3d_trajectory_plot(teacher_features, student_features, teacher_timest
         output_dir: Directory to save visualizations
         size_factor: Size factor of the student model for labeling
     """
+    # Check if the features have different dimensions
+    if teacher_features.shape[1] != student_features.shape[1]:
+        print(f"  Warning: Feature dimensions don't match in 3D trajectory plot - teacher: {teacher_features.shape[1]}, student: {student_features.shape[1]}")
+        
+        # Determine which has more features (usually the teacher)
+        if teacher_features.shape[1] > student_features.shape[1]:
+            # Pad student features with zeros
+            padding_size = teacher_features.shape[1] - student_features.shape[1]
+            student_features_padded = np.pad(student_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded student features from {student_features.shape} to {student_features_padded.shape}")
+            student_features = student_features_padded
+        else:
+            # Pad teacher features with zeros
+            padding_size = student_features.shape[1] - teacher_features.shape[1]
+            teacher_features_padded = np.pad(teacher_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded teacher features from {teacher_features.shape} to {teacher_features_padded.shape}")
+            teacher_features = teacher_features_padded
+    
     # Combine features for PCA fitting
     combined_features = np.vstack([teacher_features, student_features])
     
@@ -130,6 +183,24 @@ def create_trajectory_comparison_plot(teacher_features, student_features, teache
         output_dir: Directory to save visualizations
         size_factor: Size factor of the student model for labeling
     """
+    # Check if the features have different dimensions
+    if teacher_features.shape[1] != student_features.shape[1]:
+        print(f"  Warning: Feature dimensions don't match in trajectory comparison plot - teacher: {teacher_features.shape[1]}, student: {student_features.shape[1]}")
+        
+        # Determine which has more features (usually the teacher)
+        if teacher_features.shape[1] > student_features.shape[1]:
+            # Pad student features with zeros
+            padding_size = teacher_features.shape[1] - student_features.shape[1]
+            student_features_padded = np.pad(student_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded student features from {student_features.shape} to {student_features_padded.shape}")
+            student_features = student_features_padded
+        else:
+            # Pad teacher features with zeros
+            padding_size = student_features.shape[1] - teacher_features.shape[1]
+            teacher_features_padded = np.pad(teacher_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded teacher features from {teacher_features.shape} to {teacher_features_padded.shape}")
+            teacher_features = teacher_features_padded
+    
     # Combine features for PCA fitting
     combined_features = np.vstack([teacher_features, student_features])
     
@@ -212,6 +283,24 @@ def create_tsne_visualization(teacher_features, student_features, teacher_timest
         output_dir: Directory to save visualizations
         size_factor: Size factor of the student model for labeling
     """
+    # Check if the features have different dimensions
+    if teacher_features.shape[1] != student_features.shape[1]:
+        print(f"  Warning: Feature dimensions don't match in t-SNE visualization - teacher: {teacher_features.shape[1]}, student: {student_features.shape[1]}")
+        
+        # Determine which has more features (usually the teacher)
+        if teacher_features.shape[1] > student_features.shape[1]:
+            # Pad student features with zeros
+            padding_size = teacher_features.shape[1] - student_features.shape[1]
+            student_features_padded = np.pad(student_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded student features from {student_features.shape} to {student_features_padded.shape}")
+            student_features = student_features_padded
+        else:
+            # Pad teacher features with zeros
+            padding_size = student_features.shape[1] - teacher_features.shape[1]
+            teacher_features_padded = np.pad(teacher_features, ((0, 0), (0, padding_size)), 'constant', constant_values=0)
+            print(f"  Padded teacher features from {teacher_features.shape} to {teacher_features_padded.shape}")
+            teacher_features = teacher_features_padded
+    
     # Combine features
     combined_features = np.vstack([teacher_features, student_features])
     
@@ -308,37 +397,64 @@ def generate_latent_space_visualization(teacher_trajectories, student_trajectori
     
     print(f"Generating latent space visualization for size factor {size_factor}...")
     
-    # Extract features from trajectories
-    teacher_features, teacher_timesteps = extract_trajectory_features(teacher_trajectories)
-    student_features, student_timesteps = extract_trajectory_features(student_trajectories)
+    # Check for empty trajectories
+    if not teacher_trajectories or not student_trajectories:
+        print(f"  WARNING: Empty trajectory list provided - teacher: {len(teacher_trajectories) if teacher_trajectories else 0}, student: {len(student_trajectories) if student_trajectories else 0}")
+        print("  Skipping latent space visualization.")
+        return {"status": "skipped", "reason": "empty_trajectories"}
     
-    # Check if we have enough data
-    if len(teacher_features) < 3 or len(student_features) < 3:
-        print("  Not enough trajectory data for latent space visualization.")
-        return {"status": "insufficient_data"}
-    
-    # Create 3D trajectory plot
-    create_3d_trajectory_plot(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
-    
-    # Create trajectory comparison plot
-    create_trajectory_comparison_plot(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
-    
-    # Create t-SNE visualization
-    create_tsne_visualization(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
-    
-    # Calculate and save metrics
-    results = {
-        "teacher_feature_dim": teacher_features.shape[1],
-        "student_feature_dim": student_features.shape[1],
-        "teacher_trajectory_count": len(teacher_trajectories),
-        "student_trajectory_count": len(student_trajectories),
-        "teacher_points_count": len(teacher_features),
-        "student_points_count": len(student_features)
-    }
-    
-    # Save metrics
-    with open(os.path.join(output_dir, f"latent_space_metrics_size_{size_factor}.txt"), "w") as f:
-        for key, value in results.items():
-            f.write(f"{key}: {value}\n")
-    
-    return results 
+    try:
+        # Extract features from trajectories
+        teacher_features, teacher_timesteps = extract_trajectory_features(teacher_trajectories)
+        student_features, student_timesteps = extract_trajectory_features(student_trajectories)
+        
+        # Check if we have enough data
+        if len(teacher_features) < 3 or len(student_features) < 3:
+            print("  Not enough trajectory data for latent space visualization.")
+            print(f"  Teacher features: {teacher_features.shape if teacher_features.size > 0 else 'empty'}, Student features: {student_features.shape if student_features.size > 0 else 'empty'}")
+            return {"status": "skipped", "reason": "insufficient_data"}
+        
+        # Check if one of the arrays is empty
+        if teacher_features.size == 0 or student_features.size == 0:
+            print("  One of the feature sets is empty. Skipping latent space visualization.")
+            print(f"  Teacher features: {teacher_features.shape}, Student features: {student_features.shape}")
+            return {"status": "skipped", "reason": "empty_features"}
+        
+        # Create various visualizations
+        try:
+            # Create 3D trajectory plot
+            create_3d_trajectory_plot(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
+            
+            # Create trajectory comparison plot
+            create_trajectory_comparison_plot(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
+            
+            # Create t-SNE visualization
+            create_tsne_visualization(teacher_features, student_features, teacher_timesteps, student_timesteps, output_dir, size_factor)
+            
+            # Calculate and save metrics
+            results = {
+                "teacher_feature_dim": teacher_features.shape[1],
+                "student_feature_dim": student_features.shape[1],
+                "teacher_trajectory_count": len(teacher_trajectories),
+                "student_trajectory_count": len(student_trajectories),
+                "teacher_points_count": len(teacher_features),
+                "student_points_count": len(student_features),
+                "status": "success"
+            }
+            
+            # Save metrics
+            with open(os.path.join(output_dir, f"latent_space_metrics_size_{size_factor}.txt"), "w") as f:
+                for key, value in results.items():
+                    f.write(f"{key}: {value}\n")
+            
+            return results
+        except Exception as e:
+            print(f"  Error during latent space visualization: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"status": "error", "error": str(e)}
+    except Exception as e:
+        print(f"  Error during feature extraction for latent space visualization: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)} 

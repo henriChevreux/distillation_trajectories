@@ -14,7 +14,7 @@ from analysis.metrics.fid_score import calculate_and_visualize_fid
 # Add missing function imports
 # Time-dependent analysis functions
 from analysis.metrics.time_dependent import analyze_time_dependent_distances
-from analysis.visualization.time_dependent import plot_time_dependent_grid, plot_time_dependent_combined
+from analysis.visualization.time_dependent import plot_time_dependent_grid, plot_time_dependent_combined, plot_trajectory_divergence_vs_timestep
 
 # Size-dependent analysis functions
 from analysis.metrics.size_dependent import plot_mse_vs_size, plot_metrics_vs_size 

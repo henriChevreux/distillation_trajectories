@@ -1,0 +1,188 @@
+% Model Comparison - Diffusion Models
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usepackage{natbib}
+\bibliographystyle{abbrvnat}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit}
+
+\title{Comparison of Diffusion Model Architectures}
+\author{Distillation Trajectories Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Overview of Models}
+
+This document provides a detailed comparison of the diffusion model architectures used in the project. The project compares a teacher model (SimpleUNet) with student models (StudentUNet) of varying sizes and architectures. The overall approach is based on denoising diffusion probabilistic models (DDPM) as introduced by \citet{ho2020denoising} and further refined in subsequent work \citep{nichol2021improved, dhariwal2021diffusion}.
+
+\section{Teacher Model: SimpleUNet}
+
+The teacher model is implemented as a standard U-Net architecture specialized for diffusion models. It includes time step embeddings to condition the model on the diffusion process time step. The U-Net architecture was originally proposed by \citet{ronneberger2015unet} for biomedical image segmentation and was adapted for diffusion models by \citet{ho2020denoising}.
+
+\subsection{Key Characteristics}
+
+\begin{itemize}
+  \item \textbf{Architecture Type:} U-Net with skip connections \citep{ronneberger2015unet, ho2020denoising}
+  \item \textbf{Base Channels:} 128
+  \item \textbf{Channel Multipliers:} [1, 2, 2, 2], resulting in [128, 256, 256, 256] channels, following the empirical findings of \citet{dhariwal2021diffusion}
+  \item \textbf{Time Embedding Dimension:} 256, using sinusoidal position embeddings inspired by \citet{vaswani2017attention} and adopted for diffusion models by \citet{ho2020denoising}
+  \item \textbf{Input Channels:} 3 (RGB images)
+  \item \textbf{Image Size:} 32×32 (CIFAR-10)
+  \item \textbf{Dropout Rate:} 0.3, based on empirical findings in \citet{nichol2021improved}
+\end{itemize}
+
+\subsection{Model Architecture}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Component} & \textbf{Input Size} & \textbf{Output Size} & \textbf{Parameters} \\
+\midrule
+Time Embedding & (B, 1) & (B, 256) & Sinusoidal + Linear layers \\
+\midrule
+\multicolumn{4}{l}{\textbf{Encoder Path}} \\
+enc1 & (B, 3, 32, 32) & (B, 128, 32, 32) & Block(3→128) + TimeEmb \\
+enc2 & (B, 128, 16, 16) & (B, 256, 16, 16) & Block(128→256) + TimeEmb \\
+enc3 & (B, 256, 8, 8) & (B, 256, 8, 8) & Block(256→256) + TimeEmb \\
+\midrule
+\textbf{Bottleneck} & (B, 256, 4, 4) & (B, 256, 4, 4) & Block(256→256) + TimeEmb \\
+\midrule
+\multicolumn{4}{l}{\textbf{Decoder Path}} \\
+dec3 & (B, 512, 8, 8) & (B, 256, 8, 8) & Block(512→256) + TimeEmb \\
+dec2 & (B, 512, 16, 16) & (B, 256, 16, 16) & Block(512→256) + TimeEmb \\
+dec1 & (B, 384, 32, 32) & (B, 128, 32, 32) & Block(384→128) + TimeEmb \\
+\midrule
+Final & (B, 128, 32, 32) & (B, 3, 32, 32) & Conv2d(128→3, 1×1) \\
+\bottomrule
+\end{tabular}
+\caption{SimpleUNet architecture with layer dimensions. B represents batch size. Architecture follows design principles from \citet{ho2020denoising} and \citet{nichol2021improved}.}
+\end{table}
+
+\subsection{Block Architecture}
+Each block in the model consists of:
+\begin{itemize}
+  \item Two convolutional layers with 3×3 kernels and padding, following standard practice in U-Net architectures \citep{ronneberger2015unet}
+  \item Batch normalization after each convolution, as recommended by \citet{ioffe2015batch} and commonly used in diffusion models \citep{ho2020denoising}
+  \item ReLU activations, a standard choice for deep neural networks \citep{nair2010rectified}
+  \item Residual connection from input to output, drawing from ResNet design principles \citep{he2016deep}
+  \item Time embedding injection after the first convolution (if time embedding is provided), a technique introduced for diffusion models by \citet{ho2020denoising}
+\end{itemize}
+
+\section{Student Models: StudentUNet}
+
+The student models are scaled-down versions of the teacher model with configurable sizes and architectures. The concept of student-teacher knowledge distillation follows from the seminal work by \citet{hinton2015distilling} and has been applied to diffusion models in recent works like \citet{salimans2022progressive} and \citet{luhman2021knowledge}.
+
+\subsection{Distillation Approach}
+
+Our distillation approach focuses exclusively on trajectory matching between the teacher and student models. Unlike some distillation methods that include additional loss terms (such as comparing student predictions to ground truth noise), we use a pure matching objective:
+
+\begin{itemize}
+  \item \textbf{Single Objective:} The student is trained solely to match the teacher's predictions at each timestep using MSE loss
+  \item \textbf{No Diversity Loss:} We intentionally omit secondary objectives to ensure the student precisely follows the teacher's trajectory
+  \item \textbf{Implicit Trajectory Matching:} By matching predictions at randomly sampled timesteps over many iterations, the student implicitly learns to match the entire teacher trajectory
+\end{itemize}
+
+This approach is designed to create student models that reproduce the teacher's behavior as faithfully as possible, while requiring fewer parameters.
+
+\subsection{Architecture Types}
+
+Four main architecture types are defined for student models:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcl}
+\toprule
+\textbf{Architecture Type} & \textbf{Size Factor Range} & \textbf{Channel Dimensions} \\
+\midrule
+Tiny & < 0.1 & [32, 64] (2 layers) \\
+Small & 0.1 - 0.3 & [32, 64, 128] (3 layers) \\
+Medium & 0.3 - 0.7 & [48, 96, 192] (3 layers) \\
+Full & ≥ 0.7 & [128, 256, 256, 256] (4 layers) \\
+\bottomrule
+\end{tabular}
+\caption{Student model architecture types and their configurations, inspired by progressive model scaling approaches \citep{tan2019efficientnet, salimans2022progressive}}
+\end{table}
+
+\subsection{Size Factors}
+
+The project tests various size factors for the student models:
+\begin{itemize}
+  \item \textbf{Size Factors:} [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  \item Each size factor scales the model dimensions accordingly, with special handling for small factors, an approach supported by research in model efficiency \citep{tan2019efficientnet} and knowledge distillation \citep{hinton2015distilling}
+\end{itemize}
+
+\subsection{Detailed Architecture Comparison}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Architecture} & \textbf{Layers} & \textbf{Channel Dimensions} & \textbf{Parameter Count*} \\
+\midrule
+Teacher (SimpleUNet) & 4 & [128, 256, 256, 256] & 100\% \\
+\midrule
+Student (Tiny, 0.1) & 2 & [16, 32] & $\sim$2\% \\
+Student (Small, 0.2) & 3 & [16, 32, 64] & $\sim$5\% \\
+Student (Medium, 0.5) & 3 & [32, 64, 128] & $\sim$15\% \\
+Student (Full, 0.8) & 4 & [102, 205, 205, 205] & $\sim$64\% \\
+Student (Full, 1.0) & 4 & [128, 256, 256, 256] & 100\% \\
+\bottomrule
+\end{tabular}
+\caption{Model size comparison. *Parameter count is approximate and relative to the teacher model. Scaling approach follows principles from model compression literature \citep{luhman2021knowledge, salimans2022progressive}}
+\end{table}
+
+\section{Time Embedding}
+
+Both models use the same approach for time step embedding:
+
+\begin{enumerate}
+  \item \textbf{Sinusoidal Position Embeddings:} Converts scalar timestep to a vector using sine and cosine functions, borrowed from the Transformer architecture \citep{vaswani2017attention} and adapted for diffusion models by \citet{ho2020denoising}
+  \item \textbf{Linear Layer:} Projects to the model's time embedding dimension
+  \item \textbf{ReLU Activation:} Adds non-linearity
+  \item The embedding is then injected into each block of the model, a technique that has proven effective in diffusion models \citep{nichol2021improved}
+\end{enumerate}
+
+\section{Key Implementation Details}
+
+\subsection{Skip Connections}
+\begin{itemize}
+  \item Both models use skip connections from the encoder to decoder, a key feature of the U-Net architecture \citep{ronneberger2015unet}
+  \item Features are concatenated along the channel dimension, following standard practice in U-Net implementations \citep{ho2020denoising}
+  \item Spatial dimensions are handled with interpolation when needed, a common technique in vision models \citep{odena2016deconvolution}
+  \item Channel dimensions for decoder blocks must account for both upsampled features and skip connections from the same level, resulting in input dimensions of 2*dims[i] at each level i (see detailed explanation in the dedicated document on U-Net decoder implementation)
+  \item At each decoder level, we concatenate upsampled features (dims[i] channels) with skip connections from the same encoder level (also dims[i] channels), not from the previous level as might be incorrectly assumed
+\end{itemize}
+
+\subsection{Downsampling and Upsampling}
+\begin{itemize}
+  \item \textbf{Downsampling:} MaxPool2d with 2×2 kernel, a standard choice in convolutional neural networks \citep{krizhevsky2012imagenet}
+  \item \textbf{Upsampling:} Bilinear interpolation with scale factor 2, preferred for its smooth interpolation properties \citep{odena2016deconvolution}
+\end{itemize}
+
+\subsection{Configuration Parameters}
+\begin{itemize}
+  \item \textbf{Diffusion Steps:} 4000, following the original DDPM paper \citep{ho2020denoising}
+  \item \textbf{Beta Schedule:} Cosine, as recommended by \citet{nichol2021improved} for improved sample quality
+  \item \textbf{Beta Range:} 1e-4 to 0.02, following standard practice from \citet{ho2020denoising}
+  \item \textbf{Learning Rate:} 1e-4, a common choice for diffusion models \citep{ho2020denoising, nichol2021improved}
+  \item \textbf{Adam Betas:} (0.8, 0.999), based on the optimization settings from \citet{nichol2021improved}
+  \item \textbf{EMA Rate:} 0.9999, following best practices for diffusion models \citep{song2020score, nichol2021improved}
+\end{itemize}
+
+\section{Conclusion}
+
+The project compares a standard U-Net teacher model with various student models of different sizes and architectures. The student models are designed to be smaller and more efficient while attempting to maintain performance comparable to the teacher model. This knowledge distillation approach follows recent advances in the literature \citep{salimans2022progressive, song2023consistency} and provides insights into the trade-offs between model size, computational efficiency, and generation quality.
+
+\bibliographystyle{abbrvnat}
+\bibliography{references}
+
+\end{document} 

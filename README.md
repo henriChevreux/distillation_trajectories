@@ -141,7 +141,7 @@ python scripts/run_analysis.py [OPTIONS]
 ```
 
 Options:
-- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_10.pt")
+- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_{highest}.pt")
 - `--num_samples N`: Number of trajectory samples (default: 50)
 - `--teacher_steps N`: Teacher timesteps (default: 50)
 - `--student_steps N`: Student timesteps (default: 50)
@@ -194,6 +194,57 @@ config.create_directories()  # Creates all necessary directories
 models_dir = config.models_dir
 results_dir = config.results_dir
 ```
+
+## 🏗️ UNet Architecture Specifications
+
+This project uses the following UNet architecture parameters for CIFAR10 diffusion models:
+
+### Model Configuration
+| Parameter | Value |
+|-----------|-------|
+| Image size | 32 × 32 |
+| Number of channels | 3 |
+| Base channels | 128 |
+| Channel multipliers | [1, 2, 2, 2] |
+| Number of residual blocks | 3 |
+| Dropout | 0.3 |
+
+### Diffusion Process Parameters
+| Parameter | Value |
+|-----------|-------|
+| Training diffusion steps | 4000 |
+| Sampling timesteps | 50 |
+| Noise schedule | cosine |
+
+### Training Configuration
+| Parameter | Value |
+|-----------|-------|
+| Learning rate | 1 × 10⁻⁴ |
+| Batch size | 128 |
+| Optimizer | Adam (β₁=0.8, β₂=0.999) |
+| EMA rate | 0.9999 |
+
+### Progressive Distillation Parameters
+| Parameter | Value |
+|-----------|-------|
+| Teacher timesteps | 50 |
+| Student timesteps | 50 |
+
+### Understanding Diffusion Steps vs. Sampling Timesteps
+
+There's an important distinction between:
+- **Training diffusion steps (4000)**: The total number of noise addition steps in the original diffusion process during training
+- **Sampling timesteps (50)**: The actual number of steps used when generating images during inference
+
+Progressive distillation allows us to train on the full 4000-step diffusion process, but generate high-quality samples using only 50 steps. This significantly accelerates the sampling process while maintaining image quality.
+
+These parameters are based on research from:
+1. Ho et al. (2020). Denoising diffusion probabilistic models. NeurIPS.
+2. Nichol & Dhariwal (2021). Improved denoising diffusion probabilistic models. ICML.
+3. Salimans & Ho (2022). Progressive distillation for fast sampling of diffusion models. ICLR.
+4. Song et al. (2020). Denoising diffusion implicit models. ICLR.
+
+A detailed LaTeX document with these specifications is available in `unet_architecture.tex`.
 
 ## 📊 Analysis Outputs
 
