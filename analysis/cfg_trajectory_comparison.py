@@ -85,27 +85,24 @@ def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, see
             pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
             
             # Get diffusion parameters for this timestep
-            betas_t = extract(diffusion_params['betas'], t, x.shape)
             sqrt_one_minus_alphas_cumprod_t = extract(
                 diffusion_params['sqrt_one_minus_alphas_cumprod'], t, x.shape
             )
             sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
-            posterior_variance_t = extract(diffusion_params['posterior_variance'], t, x.shape)
             
             # Direction pointing to x_t
             pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred
             
-            # Random noise (only if not at final step)
-            if i > 0:
-                noise = torch.randn_like(x)
-                noise_scale = torch.sqrt(betas_t)
+            # For the final step, completely eliminate noise and variance
+            if i == 0:
+                # Final deterministic step
+                x = sqrt_recip_alphas_t * (x - pred_original_direction)
             else:
-                # For the final step, use posterior variance and no noise
-                noise = torch.zeros_like(x)
-                noise_scale = torch.sqrt(posterior_variance_t)
-            
-            # Update x using the proper diffusion update step
-            x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
+                # Regular step with noise
+                noise = torch.randn_like(x)
+                betas_t = extract(diffusion_params['betas'], t, x.shape)
+                noise_scale = torch.sqrt(betas_t)
+                x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
         
         # Record the current state
         trajectory.append(x.detach().cpu())
@@ -142,27 +139,24 @@ def generate_trajectory_without_cfg(model, noise, timesteps, device, seed=None):
             pred = model(x, t)
             
             # Get diffusion parameters for this timestep
-            betas_t = extract(diffusion_params['betas'], t, x.shape)
             sqrt_one_minus_alphas_cumprod_t = extract(
                 diffusion_params['sqrt_one_minus_alphas_cumprod'], t, x.shape
             )
             sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
-            posterior_variance_t = extract(diffusion_params['posterior_variance'], t, x.shape)
             
             # Direction pointing to x_t
             pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred
             
-            # Random noise (only if not at final step)
-            if i > 0:
-                noise = torch.randn_like(x)
-                noise_scale = torch.sqrt(betas_t)
+            # For the final step, completely eliminate noise and variance
+            if i == 0:
+                # Final deterministic step
+                x = sqrt_recip_alphas_t * (x - pred_original_direction)
             else:
-                # For the final step, use posterior variance and no noise
-                noise = torch.zeros_like(x)
-                noise_scale = torch.sqrt(posterior_variance_t)
-            
-            # Update x using the proper diffusion update step
-            x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
+                # Regular step with noise
+                noise = torch.randn_like(x)
+                betas_t = extract(diffusion_params['betas'], t, x.shape)
+                noise_scale = torch.sqrt(betas_t)
+                x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
         
         # Record the current state
         trajectory.append(x.detach().cpu())
