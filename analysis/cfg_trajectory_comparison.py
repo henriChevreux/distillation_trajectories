@@ -572,8 +572,8 @@ def visualize_cfg_similarity_metrics(teacher_trajectories, student_trajectories,
         teacher_euclidean = euclidean_distance_trajectories(teacher_traj, teacher_no_cfg)
         student_euclidean = euclidean_distance_trajectories(student_traj, student_no_cfg)
         
-        # Create x-axis for timesteps (reversed for diffusion process)
-        timesteps = np.arange(len(teacher_cosine))[::-1]
+        # Create x-axis for timesteps (use natural order for diffusion process)
+        timesteps = np.arange(len(teacher_cosine))
         
         # Create subplot for cosine similarity
         plt.subplot(2, 1, 1)
@@ -796,8 +796,8 @@ def visualize_teacher_student_similarity(teacher_trajectories, student_trajector
         euclidean_cfg = euclidean_distance_trajectories(teacher_traj, student_traj)
         euclidean_no_cfg = euclidean_distance_trajectories(teacher_no_cfg, student_no_cfg)
         
-        # Create x-axis for timesteps (reversed for diffusion process)
-        timesteps = np.arange(len(cosine_cfg))[::-1]
+        # Create x-axis for timesteps (use natural order for diffusion process)
+        timesteps = np.arange(len(cosine_cfg))
         
         # Create subplot for cosine similarity
         plt.subplot(2, 1, 1)
