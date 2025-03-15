@@ -226,6 +226,12 @@ def compare_cfg_trajectories(teacher_model, student_model, config, guidance_scal
         output_dir, guidance_scales, size_factor
     )
     
+    # Add the new combined visualization
+    visualize_combined_cfg_trajectories(
+        teacher_trajectories, student_trajectories,
+        output_dir, guidance_scales, size_factor
+    )
+    
     return {
         "teacher_trajectories": teacher_trajectories,
         "student_trajectories": student_trajectories,
@@ -257,24 +263,14 @@ def visualize_cfg_vs_no_cfg_trajectories(teacher_trajectories, student_trajector
         teacher_no_cfg_features = process_trajectory(teacher_no_cfg)
         student_no_cfg_features = process_trajectory(student_no_cfg)
         
-        # Combine features for PCA
-        all_features = np.concatenate([
-            teacher_features,
-            student_features,
-            teacher_no_cfg_features,
-            student_no_cfg_features
-        ], axis=0)
-        
-        # Fit PCA
+        # Fit PCA on teacher's no-CFG trajectory only (for consistency with regular trajectory comparison)
         pca = PCA(n_components=2)
-        all_pca = pca.fit_transform(all_features)
+        teacher_no_cfg_pca = pca.fit_transform(teacher_no_cfg_features)
         
-        # Split back into separate trajectories
-        n_steps = len(teacher_traj)
-        teacher_pca = all_pca[:n_steps]
-        student_pca = all_pca[n_steps:2*n_steps]
-        teacher_no_cfg_pca = all_pca[2*n_steps:3*n_steps]
-        student_no_cfg_pca = all_pca[3*n_steps:]
+        # Project all other trajectories into the same PCA space
+        teacher_pca = pca.transform(teacher_features)
+        student_pca = pca.transform(student_features)
+        student_no_cfg_pca = pca.transform(student_no_cfg_features)
         
         # Create figure
         plt.figure(figsize=(10, 8))
@@ -347,4 +343,90 @@ def visualize_cfg_vs_no_cfg_final_images(teacher_trajectories, student_trajector
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f'cfg_vs_no_cfg_final_images_size_{size_factor}.png'))
+    plt.close()
+
+def visualize_combined_cfg_trajectories(teacher_trajectories, student_trajectories,
+                                      output_dir, guidance_scales, size_factor):
+    """
+    Visualize all CFG trajectories in a single plot with a color gradient
+    
+    This creates a combined visualization showing how different guidance scales
+    affect the trajectories of both teacher and student models.
+    """
+    # Convert trajectories to feature vectors
+    def process_trajectory(traj):
+        features = [t.cpu().numpy().reshape(-1) for t in traj]
+        return np.stack(features)
+    
+    # Get a reference trajectory (teacher with no CFG) for PCA
+    reference_trajectory = teacher_trajectories[guidance_scales[0]]
+    reference_features = process_trajectory(reference_trajectory)
+    
+    # Fit PCA on reference trajectory
+    pca = PCA(n_components=2)
+    reference_pca = pca.fit_transform(reference_features)
+    
+    # Create figure with a specific size and layout for the colorbar
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    # Create a colormap for guidance scales
+    cmap = plt.cm.viridis
+    norm = plt.Normalize(min(guidance_scales), max(guidance_scales))
+    
+    # Plot trajectories for each guidance scale
+    for g_scale in guidance_scales:
+        # Get trajectories for this guidance scale
+        teacher_traj = teacher_trajectories[g_scale]
+        student_traj = student_trajectories[g_scale]
+        
+        # Process and project trajectories
+        teacher_features = process_trajectory(teacher_traj)
+        student_features = process_trajectory(student_traj)
+        
+        teacher_pca = pca.transform(teacher_features)
+        student_pca = pca.transform(student_features)
+        
+        # Get color for this guidance scale
+        color = cmap(norm(g_scale))
+        
+        # Plot teacher trajectory
+        ax.plot(teacher_pca[:, 0], teacher_pca[:, 1],
+                '-o', color=color, alpha=0.8, markersize=4,
+                label=f'Teacher (w={g_scale})')
+        
+        # Plot student trajectory
+        ax.plot(student_pca[:, 0], student_pca[:, 1],
+                '--s', color=color, alpha=0.8, markersize=4,
+                label=f'Student (w={g_scale})')
+    
+    # Create custom legend with one entry per guidance scale
+    legend_elements = []
+    for g_scale in guidance_scales:
+        color = cmap(norm(g_scale))
+        # Teacher (solid line)
+        legend_elements.append(plt.Line2D([0], [0], color=color, lw=2, ls='-', marker='o', markersize=4,
+                                         label=f'Teacher (w={g_scale})'))
+        # Student (dashed line)
+        legend_elements.append(plt.Line2D([0], [0], color=color, lw=2, ls='--', marker='s', markersize=4,
+                                         label=f'Student (w={g_scale})'))
+    
+    # Add legend outside the plot
+    ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    # Add colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, label='Guidance Scale')
+    
+    # Add labels and title
+    ax.set_title(f'Trajectory Comparison with CFG\n(Student Size Factor: {size_factor})')
+    ax.set_xlabel('First Principal Component')
+    ax.set_ylabel('Second Principal Component')
+    
+    # Adjust layout to make room for the legend
+    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    
+    # Save plot
+    plt.savefig(os.path.join(output_dir, f'combined_cfg_trajectories_size_{size_factor}.png'),
+               bbox_inches='tight', dpi=300)
     plt.close() 
