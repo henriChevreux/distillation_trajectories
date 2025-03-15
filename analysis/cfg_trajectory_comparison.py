@@ -232,6 +232,20 @@ def compare_cfg_trajectories(teacher_model, student_model, config, guidance_scal
         output_dir, guidance_scales, size_factor
     )
     
+    # Add the new similarity visualization
+    visualize_cfg_similarity_metrics(
+        teacher_trajectories, student_trajectories,
+        teacher_no_cfg_trajectories, student_no_cfg_trajectories,
+        output_dir, guidance_scales, size_factor
+    )
+    
+    # Add the teacher-student similarity comparison
+    visualize_teacher_student_similarity(
+        teacher_trajectories, student_trajectories,
+        teacher_no_cfg_trajectories, student_no_cfg_trajectories,
+        output_dir, guidance_scales, size_factor
+    )
+    
     return {
         "teacher_trajectories": teacher_trajectories,
         "student_trajectories": student_trajectories,
@@ -429,4 +443,408 @@ def visualize_combined_cfg_trajectories(teacher_trajectories, student_trajectori
     # Save plot
     plt.savefig(os.path.join(output_dir, f'combined_cfg_trajectories_size_{size_factor}.png'),
                bbox_inches='tight', dpi=300)
+    plt.close()
+
+def visualize_cfg_similarity_metrics(teacher_trajectories, student_trajectories,
+                                   teacher_no_cfg_trajectories, student_no_cfg_trajectories,
+                                   output_dir, guidance_scales, size_factor):
+    """
+    Visualize the impact of CFG on trajectory similarity
+    
+    This function calculates and visualizes various similarity metrics between
+    trajectories with and without CFG across different guidance scales.
+    """
+    # Initialize lists to store metrics
+    cosine_similarities_teacher = []
+    cosine_similarities_student = []
+    euclidean_distances_teacher = []
+    euclidean_distances_student = []
+    
+    # Process trajectories to feature vectors
+    def process_trajectory(traj):
+        features = [t.cpu().numpy().reshape(-1) for t in traj]
+        return np.stack(features)
+    
+    # Calculate cosine similarity between two feature matrices
+    def cosine_similarity_trajectories(traj1, traj2):
+        # Ensure both trajectories have the same number of steps
+        min_steps = min(len(traj1), len(traj2))
+        similarities = []
+        
+        for i in range(min_steps):
+            # Flatten the images to 1D vectors
+            vec1 = traj1[i].reshape(1, -1)
+            vec2 = traj2[i].reshape(1, -1)
+            
+            # Calculate cosine similarity
+            dot_product = np.sum(vec1 * vec2)
+            norm1 = np.sqrt(np.sum(vec1 ** 2))
+            norm2 = np.sqrt(np.sum(vec2 ** 2))
+            
+            if norm1 * norm2 > 0:  # Avoid division by zero
+                similarity = dot_product / (norm1 * norm2)
+            else:
+                similarity = 0
+                
+            similarities.append(similarity)
+        
+        return np.array(similarities)
+    
+    # Calculate Euclidean distance between two feature matrices
+    def euclidean_distance_trajectories(traj1, traj2):
+        # Ensure both trajectories have the same number of steps
+        min_steps = min(len(traj1), len(traj2))
+        distances = []
+        
+        for i in range(min_steps):
+            # Flatten the images to 1D vectors
+            vec1 = traj1[i].reshape(-1)
+            vec2 = traj2[i].reshape(-1)
+            
+            # Calculate Euclidean distance
+            distance = np.sqrt(np.sum((vec1 - vec2) ** 2))
+            distances.append(distance)
+        
+        return np.array(distances)
+    
+    # Calculate metrics for each guidance scale
+    for g_scale in guidance_scales:
+        # Get trajectories for this guidance scale
+        teacher_traj = process_trajectory(teacher_trajectories[g_scale])
+        student_traj = process_trajectory(student_trajectories[g_scale])
+        teacher_no_cfg = process_trajectory(teacher_no_cfg_trajectories[g_scale])
+        student_no_cfg = process_trajectory(student_no_cfg_trajectories[g_scale])
+        
+        # Calculate cosine similarity
+        teacher_cosine = cosine_similarity_trajectories(teacher_traj, teacher_no_cfg)
+        student_cosine = cosine_similarity_trajectories(student_traj, student_no_cfg)
+        
+        # Calculate Euclidean distance
+        teacher_euclidean = euclidean_distance_trajectories(teacher_traj, teacher_no_cfg)
+        student_euclidean = euclidean_distance_trajectories(student_traj, student_no_cfg)
+        
+        # Store average metrics
+        cosine_similarities_teacher.append(np.mean(teacher_cosine))
+        cosine_similarities_student.append(np.mean(student_cosine))
+        euclidean_distances_teacher.append(np.mean(teacher_euclidean))
+        euclidean_distances_student.append(np.mean(student_euclidean))
+    
+    # Create figure for similarity metrics across guidance scales
+    plt.figure(figsize=(12, 10))
+    
+    # Create subplot for cosine similarity
+    plt.subplot(2, 1, 1)
+    plt.plot(guidance_scales, cosine_similarities_teacher, '-o', label='Teacher', color='blue')
+    plt.plot(guidance_scales, cosine_similarities_student, '--s', label='Student', color='red')
+    plt.title(f'Average Cosine Similarity Between CFG and No-CFG Trajectories\n(Student Size Factor: {size_factor})')
+    plt.xlabel('Guidance Scale')
+    plt.ylabel('Cosine Similarity')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Create subplot for Euclidean distance
+    plt.subplot(2, 1, 2)
+    plt.plot(guidance_scales, euclidean_distances_teacher, '-o', label='Teacher', color='blue')
+    plt.plot(guidance_scales, euclidean_distances_student, '--s', label='Student', color='red')
+    plt.title(f'Average Euclidean Distance Between CFG and No-CFG Trajectories\n(Student Size Factor: {size_factor})')
+    plt.xlabel('Guidance Scale')
+    plt.ylabel('Euclidean Distance')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'cfg_similarity_metrics_size_{size_factor}.png'), dpi=300)
+    plt.close()
+    
+    # Create figure for step-by-step similarity metrics for each guidance scale
+    for g_scale in guidance_scales:
+        plt.figure(figsize=(12, 10))
+        
+        # Get trajectories for this guidance scale
+        teacher_traj = process_trajectory(teacher_trajectories[g_scale])
+        student_traj = process_trajectory(student_trajectories[g_scale])
+        teacher_no_cfg = process_trajectory(teacher_no_cfg_trajectories[g_scale])
+        student_no_cfg = process_trajectory(student_no_cfg_trajectories[g_scale])
+        
+        # Calculate step-by-step metrics
+        teacher_cosine = cosine_similarity_trajectories(teacher_traj, teacher_no_cfg)
+        student_cosine = cosine_similarity_trajectories(student_traj, student_no_cfg)
+        teacher_euclidean = euclidean_distance_trajectories(teacher_traj, teacher_no_cfg)
+        student_euclidean = euclidean_distance_trajectories(student_traj, student_no_cfg)
+        
+        # Create x-axis for timesteps (reversed for diffusion process)
+        timesteps = np.arange(len(teacher_cosine))[::-1]
+        
+        # Create subplot for cosine similarity
+        plt.subplot(2, 1, 1)
+        plt.plot(timesteps, teacher_cosine, '-', label='Teacher', color='blue')
+        plt.plot(timesteps, student_cosine, '--', label='Student', color='red')
+        plt.title(f'Cosine Similarity Between CFG (w={g_scale}) and No-CFG Trajectories\n(Student Size Factor: {size_factor})')
+        plt.xlabel('Diffusion Timestep')
+        plt.ylabel('Cosine Similarity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Create subplot for Euclidean distance
+        plt.subplot(2, 1, 2)
+        plt.plot(timesteps, teacher_euclidean, '-', label='Teacher', color='blue')
+        plt.plot(timesteps, student_euclidean, '--', label='Student', color='red')
+        plt.title(f'Euclidean Distance Between CFG (w={g_scale}) and No-CFG Trajectories\n(Student Size Factor: {size_factor})')
+        plt.xlabel('Diffusion Timestep')
+        plt.ylabel('Euclidean Distance')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'cfg_similarity_timesteps_w{g_scale}_size_{size_factor}.png'), dpi=300)
+        plt.close()
+    
+    # Create a visualization of trajectory divergence in PCA space
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    # Fit PCA on teacher's no-CFG trajectory
+    reference_trajectory = teacher_no_cfg_trajectories[guidance_scales[0]]
+    reference_features = process_trajectory(reference_trajectory)
+    pca = PCA(n_components=2)
+    pca.fit(reference_features)
+    
+    # Create a colormap for guidance scales
+    cmap = plt.cm.viridis
+    norm = plt.Normalize(min(guidance_scales), max(guidance_scales))
+    
+    # Plot the divergence between CFG and no-CFG trajectories
+    for g_scale in guidance_scales:
+        # Get trajectories for this guidance scale
+        teacher_traj = process_trajectory(teacher_trajectories[g_scale])
+        student_traj = process_trajectory(student_trajectories[g_scale])
+        teacher_no_cfg = process_trajectory(teacher_no_cfg_trajectories[g_scale])
+        student_no_cfg = process_trajectory(student_no_cfg_trajectories[g_scale])
+        
+        # Project trajectories to PCA space
+        teacher_cfg_pca = pca.transform(teacher_traj)
+        student_cfg_pca = pca.transform(student_traj)
+        teacher_no_cfg_pca = pca.transform(teacher_no_cfg)
+        student_no_cfg_pca = pca.transform(student_no_cfg)
+        
+        # Calculate divergence vectors
+        teacher_divergence = teacher_cfg_pca - teacher_no_cfg_pca
+        student_divergence = student_cfg_pca - student_no_cfg_pca
+        
+        # Get color for this guidance scale
+        color = cmap(norm(g_scale))
+        
+        # Plot divergence vectors at selected timesteps (every 5 steps)
+        step_interval = max(1, len(teacher_divergence) // 10)  # Show about 10 arrows
+        for i in range(0, len(teacher_divergence), step_interval):
+            # Teacher divergence
+            ax.arrow(teacher_no_cfg_pca[i, 0], teacher_no_cfg_pca[i, 1],
+                     teacher_divergence[i, 0], teacher_divergence[i, 1],
+                     color=color, alpha=0.7, width=0.005,
+                     head_width=0.05, head_length=0.1,
+                     length_includes_head=True)
+            
+            # Student divergence
+            ax.arrow(student_no_cfg_pca[i, 0], student_no_cfg_pca[i, 1],
+                     student_divergence[i, 0], student_divergence[i, 1],
+                     color=color, alpha=0.7, width=0.005, linestyle='--',
+                     head_width=0.05, head_length=0.1,
+                     length_includes_head=True)
+    
+    # Add colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, label='Guidance Scale')
+    
+    # Add legend for teacher vs student
+    ax.plot([], [], '-', color='black', label='Teacher')
+    ax.plot([], [], '--', color='black', label='Student')
+    ax.legend()
+    
+    ax.set_title(f'Trajectory Divergence Due to CFG\n(Student Size Factor: {size_factor})')
+    ax.set_xlabel('First Principal Component')
+    ax.set_ylabel('Second Principal Component')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'cfg_trajectory_divergence_size_{size_factor}.png'), dpi=300)
+    plt.close()
+
+def visualize_teacher_student_similarity(teacher_trajectories, student_trajectories,
+                                       teacher_no_cfg_trajectories, student_no_cfg_trajectories,
+                                       output_dir, guidance_scales, size_factor):
+    """
+    Visualize the similarity between teacher and student models under different guidance scales
+    
+    This function calculates and visualizes how the similarity between teacher and student
+    trajectories changes with different guidance scales.
+    """
+    # Process trajectories to feature vectors
+    def process_trajectory(traj):
+        features = [t.cpu().numpy().reshape(-1) for t in traj]
+        return np.stack(features)
+    
+    # Calculate cosine similarity between two feature matrices
+    def cosine_similarity_trajectories(traj1, traj2):
+        # Ensure both trajectories have the same number of steps
+        min_steps = min(len(traj1), len(traj2))
+        similarities = []
+        
+        for i in range(min_steps):
+            # Flatten the images to 1D vectors
+            vec1 = traj1[i].reshape(1, -1)
+            vec2 = traj2[i].reshape(1, -1)
+            
+            # Calculate cosine similarity
+            dot_product = np.sum(vec1 * vec2)
+            norm1 = np.sqrt(np.sum(vec1 ** 2))
+            norm2 = np.sqrt(np.sum(vec2 ** 2))
+            
+            if norm1 * norm2 > 0:  # Avoid division by zero
+                similarity = dot_product / (norm1 * norm2)
+            else:
+                similarity = 0
+                
+            similarities.append(similarity)
+        
+        return np.array(similarities)
+    
+    # Calculate Euclidean distance between two feature matrices
+    def euclidean_distance_trajectories(traj1, traj2):
+        # Ensure both trajectories have the same number of steps
+        min_steps = min(len(traj1), len(traj2))
+        distances = []
+        
+        for i in range(min_steps):
+            # Flatten the images to 1D vectors
+            vec1 = traj1[i].reshape(-1)
+            vec2 = traj2[i].reshape(-1)
+            
+            # Calculate Euclidean distance
+            distance = np.sqrt(np.sum((vec1 - vec2) ** 2))
+            distances.append(distance)
+        
+        return np.array(distances)
+    
+    # Initialize lists to store metrics
+    cosine_similarities_cfg = []
+    cosine_similarities_no_cfg = []
+    euclidean_distances_cfg = []
+    euclidean_distances_no_cfg = []
+    
+    # Calculate metrics for each guidance scale
+    for g_scale in guidance_scales:
+        # Get trajectories for this guidance scale
+        teacher_traj = process_trajectory(teacher_trajectories[g_scale])
+        student_traj = process_trajectory(student_trajectories[g_scale])
+        teacher_no_cfg = process_trajectory(teacher_no_cfg_trajectories[g_scale])
+        student_no_cfg = process_trajectory(student_no_cfg_trajectories[g_scale])
+        
+        # Calculate cosine similarity between teacher and student
+        cosine_cfg = cosine_similarity_trajectories(teacher_traj, student_traj)
+        cosine_no_cfg = cosine_similarity_trajectories(teacher_no_cfg, student_no_cfg)
+        
+        # Calculate Euclidean distance between teacher and student
+        euclidean_cfg = euclidean_distance_trajectories(teacher_traj, student_traj)
+        euclidean_no_cfg = euclidean_distance_trajectories(teacher_no_cfg, student_no_cfg)
+        
+        # Store average metrics
+        cosine_similarities_cfg.append(np.mean(cosine_cfg))
+        cosine_similarities_no_cfg.append(np.mean(cosine_no_cfg))
+        euclidean_distances_cfg.append(np.mean(euclidean_cfg))
+        euclidean_distances_no_cfg.append(np.mean(euclidean_no_cfg))
+    
+    # Create figure for similarity metrics across guidance scales
+    plt.figure(figsize=(12, 10))
+    
+    # Create subplot for cosine similarity
+    plt.subplot(2, 1, 1)
+    plt.plot(guidance_scales, cosine_similarities_cfg, '-o', label='With CFG', color='blue')
+    plt.plot(guidance_scales, [cosine_similarities_no_cfg[0]] * len(guidance_scales), '--', label='Without CFG', color='red')
+    plt.title(f'Average Cosine Similarity Between Teacher and Student Trajectories\n(Student Size Factor: {size_factor})')
+    plt.xlabel('Guidance Scale')
+    plt.ylabel('Cosine Similarity')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Create subplot for Euclidean distance
+    plt.subplot(2, 1, 2)
+    plt.plot(guidance_scales, euclidean_distances_cfg, '-o', label='With CFG', color='blue')
+    plt.plot(guidance_scales, [euclidean_distances_no_cfg[0]] * len(guidance_scales), '--', label='Without CFG', color='red')
+    plt.title(f'Average Euclidean Distance Between Teacher and Student Trajectories\n(Student Size Factor: {size_factor})')
+    plt.xlabel('Guidance Scale')
+    plt.ylabel('Euclidean Distance')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'teacher_student_similarity_metrics_size_{size_factor}.png'), dpi=300)
+    plt.close()
+    
+    # Create figure for step-by-step similarity metrics for each guidance scale
+    for g_scale in guidance_scales:
+        plt.figure(figsize=(12, 10))
+        
+        # Get trajectories for this guidance scale
+        teacher_traj = process_trajectory(teacher_trajectories[g_scale])
+        student_traj = process_trajectory(student_trajectories[g_scale])
+        teacher_no_cfg = process_trajectory(teacher_no_cfg_trajectories[g_scale])
+        student_no_cfg = process_trajectory(student_no_cfg_trajectories[g_scale])
+        
+        # Calculate step-by-step metrics
+        cosine_cfg = cosine_similarity_trajectories(teacher_traj, student_traj)
+        cosine_no_cfg = cosine_similarity_trajectories(teacher_no_cfg, student_no_cfg)
+        euclidean_cfg = euclidean_distance_trajectories(teacher_traj, student_traj)
+        euclidean_no_cfg = euclidean_distance_trajectories(teacher_no_cfg, student_no_cfg)
+        
+        # Create x-axis for timesteps (reversed for diffusion process)
+        timesteps = np.arange(len(cosine_cfg))[::-1]
+        
+        # Create subplot for cosine similarity
+        plt.subplot(2, 1, 1)
+        plt.plot(timesteps, cosine_cfg, '-', label=f'With CFG (w={g_scale})', color='blue')
+        plt.plot(timesteps, cosine_no_cfg, '--', label='Without CFG', color='red')
+        plt.title(f'Cosine Similarity Between Teacher and Student Trajectories\n(Student Size Factor: {size_factor})')
+        plt.xlabel('Diffusion Timestep')
+        plt.ylabel('Cosine Similarity')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Create subplot for Euclidean distance
+        plt.subplot(2, 1, 2)
+        plt.plot(timesteps, euclidean_cfg, '-', label=f'With CFG (w={g_scale})', color='blue')
+        plt.plot(timesteps, euclidean_no_cfg, '--', label='Without CFG', color='red')
+        plt.title(f'Euclidean Distance Between Teacher and Student Trajectories\n(Student Size Factor: {size_factor})')
+        plt.xlabel('Diffusion Timestep')
+        plt.ylabel('Euclidean Distance')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'teacher_student_similarity_timesteps_w{g_scale}_size_{size_factor}.png'), dpi=300)
+        plt.close()
+    
+    # Create a visualization comparing the relative impact of CFG on teacher vs student
+    fig, axs = plt.subplots(2, 1, figsize=(12, 10))
+    
+    # Calculate the ratio of similarity change due to CFG
+    cosine_ratio = [cfg / no_cfg for cfg, no_cfg in zip(cosine_similarities_cfg, [cosine_similarities_no_cfg[0]] * len(guidance_scales))]
+    euclidean_ratio = [cfg / no_cfg for cfg, no_cfg in zip(euclidean_distances_cfg, [euclidean_distances_no_cfg[0]] * len(guidance_scales))]
+    
+    # Create subplot for cosine similarity ratio
+    axs[0].plot(guidance_scales, cosine_ratio, '-o', color='purple')
+    axs[0].axhline(y=1.0, color='gray', linestyle='--', alpha=0.7)
+    axs[0].set_title(f'Relative Change in Teacher-Student Similarity Due to CFG\n(Student Size Factor: {size_factor})')
+    axs[0].set_xlabel('Guidance Scale')
+    axs[0].set_ylabel('Cosine Similarity Ratio\n(CFG / No CFG)')
+    axs[0].grid(True, alpha=0.3)
+    
+    # Create subplot for Euclidean distance ratio
+    axs[1].plot(guidance_scales, euclidean_ratio, '-o', color='purple')
+    axs[1].axhline(y=1.0, color='gray', linestyle='--', alpha=0.7)
+    axs[1].set_xlabel('Guidance Scale')
+    axs[1].set_ylabel('Euclidean Distance Ratio\n(CFG / No CFG)')
+    axs[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'teacher_student_similarity_ratio_size_{size_factor}.png'), dpi=300)
     plt.close() 
