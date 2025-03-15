@@ -22,6 +22,7 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
   - [🏗️ UNet Architecture Specifications](#️-unet-architecture-specifications)
   - [📊 Analysis Outputs](#-analysis-outputs)
     - [Trajectory Comparison Visualization](#trajectory-comparison-visualization)
+    - [Classifier-Free Guidance (CFG) Analysis](#classifier-free-guidance-cfg-analysis)
   - [❓ Troubleshooting](#-troubleshooting)
   - [📄 License](#-license)
   - [📝 Citation](#-citation)
@@ -42,6 +43,7 @@ The toolkit includes advanced visualization tools for comparing model trajectori
 - **Multi-device support**: CUDA, MPS, CPU
 - **Trajectory comparison**: PCA-based visualization of model trajectories with consistent reference frames
 - **Deterministic verification**: Tools to verify trajectory determinism and model consistency
+- **Classifier-Free Guidance analysis**: Visualize and quantify the impact of CFG on model trajectories
 
 ## 📦 Installation
 
@@ -69,6 +71,7 @@ distillation_trajectories/
 ├── analysis/                  # Analysis modules
 │   ├── dimensionality/        # Dimensionality reduction analysis
 │   ├── metrics/               # Trajectory metrics
+│   ├── cfg_trajectory_comparison/ # CFG trajectory analysis
 │   └── ...                    # Other analysis types
 ├── config/                    # Configuration
 ├── data/                      # Data handling
@@ -96,6 +99,9 @@ python scripts/train_students.py
 
 # Run analysis
 python scripts/run_analysis.py
+
+# Run CFG trajectory analysis
+python scripts/run_cfg_trajectory_comparison.py
 ```
 
 ## 📖 Usage Guide
@@ -263,6 +269,7 @@ All analysis results are organized in the `output/analysis/` directory:
 - **Attention Analysis** (`attention/`): Attention map visualizations
 - **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
 - **Trajectory Comparison** (`trajectory_comparison/`): Direct visual comparison of teacher and student model trajectories
+- **CFG Trajectory Analysis** (`cfg_trajectory_comparison/`): Analysis of how Classifier-Free Guidance affects model trajectories
 
 ### Trajectory Comparison Visualization
 
@@ -287,6 +294,53 @@ For verification of trajectory determinism:
 ```bash
 python scripts/run_trajectory_verification.py
 ```
+
+### Classifier-Free Guidance (CFG) Analysis
+
+The CFG analysis module examines how Classifier-Free Guidance affects the trajectories of diffusion models and compares the impact across different model sizes. This analysis is crucial for understanding how guidance scales influence both teacher and student models.
+
+#### What is Classifier-Free Guidance?
+
+Classifier-Free Guidance (CFG) is a technique that improves sample quality in diffusion models by combining conditional and unconditional generation. During the sampling process, the model prediction is adjusted using:
+
+```
+prediction = unconditional_prediction + guidance_scale * (conditional_prediction - unconditional_prediction)
+```
+
+Where `guidance_scale` (w) controls the strength of the guidance. Higher values typically result in higher-quality but less diverse samples.
+
+#### Key Features of CFG Analysis
+
+- **Multi-scale Guidance**: Analyzes trajectories across different guidance scales (1.0, 3.0, 5.0, 7.0)
+- **Comparative Visualization**: Directly compares trajectories with and without CFG
+- **Similarity Metrics**: Quantifies the impact of CFG using cosine similarity and Euclidean distance
+- **Trajectory Divergence**: Visualizes how CFG causes trajectories to diverge from the non-guided path
+- **Teacher-Student Comparison**: Examines how CFG affects teacher vs. student models differently
+- **Final Image Comparison**: Shows the visual impact of different guidance scales on generated images
+
+#### Visualizations Included
+
+1. **Combined CFG Trajectories**: Shows all guidance scales in a single plot with a color gradient
+2. **CFG vs. No-CFG Trajectories**: Compares guided and non-guided trajectories for each scale
+3. **CFG vs. No-CFG Final Images**: Grid of final images comparing different guidance scales
+4. **CFG Similarity Metrics**: Plots showing how similarity between guided and non-guided trajectories changes with guidance scale
+5. **Trajectory Divergence**: Vector field visualization showing how CFG causes trajectories to diverge
+6. **Teacher-Student Similarity**: Analysis of how CFG affects the similarity between teacher and student models
+
+#### Running CFG Analysis
+
+To run the CFG trajectory comparison:
+
+```bash
+python scripts/run_cfg_trajectory_comparison.py --guidance_scales "1.0,3.0,5.0,7.0" --size_factors "0.3,1.0" --student_models "size_0.3/model_epoch_5.pt,size_1.0/model_epoch_5.pt"
+```
+
+Options:
+- `--guidance_scales`: Comma-separated list of guidance scales to analyze
+- `--size_factors`: Comma-separated list of student model size factors to analyze
+- `--student_models`: Comma-separated list of student model paths (relative to the students directory)
+
+The results are organized by epoch in the `output/analysis/cfg_trajectory_comparison/` directory.
 
 ## ❓ Troubleshooting
 
