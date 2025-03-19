@@ -16,7 +16,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from config.config import Config
-from models import SimpleUNet, StudentUNet
+from models import SimpleUNet, StudentUNet, DiffusionUNet
 from analysis.cfg_trajectory_comparison import compare_cfg_trajectories
 
 def parse_args():
@@ -60,18 +60,19 @@ def main():
     # Convert guidance scales to list of floats
     guidance_scales = [float(w) for w in args.guidance_scales.split(',')]
     
+    # Determine device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
     # Load teacher model
     teacher_path = os.path.join(config.teacher_models_dir, args.teacher_model)
     if not os.path.exists(teacher_path):
         raise FileNotFoundError(f"Teacher model not found at {teacher_path}")
     
     print(f"Loading teacher model from {teacher_path}")
-    teacher_model = SimpleUNet(config)
-    teacher_model.load_state_dict(torch.load(teacher_path))
+    teacher_model = DiffusionUNet(config, size_factor=1.0)
+    teacher_model.load_state_dict(torch.load(teacher_path, map_location=device))
     teacher_model.eval()
-    
-    # Determine device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     teacher_model = teacher_model.to(device)
     
     # Process each student model
@@ -95,8 +96,8 @@ def main():
             print(f"\nProcessing student model with size factor {size_factor}")
             print(f"Loading student model from {full_path}")
             
-            student_model = StudentUNet(config, size_factor=size_factor)
-            student_model.load_state_dict(torch.load(full_path))
+            student_model = DiffusionUNet(config, size_factor=size_factor)
+            student_model.load_state_dict(torch.load(full_path, map_location=device))
             student_model = student_model.to(device)
             student_model.eval()
             
@@ -128,8 +129,8 @@ def main():
             print(f"\nProcessing student model with size factor {size_factor}")
             print(f"Loading student model from {student_path}")
             
-            student_model = StudentUNet(config, size_factor=size_factor)
-            student_model.load_state_dict(torch.load(student_path))
+            student_model = DiffusionUNet(config, size_factor=size_factor)
+            student_model.load_state_dict(torch.load(student_path, map_location=device))
             student_model = student_model.to(device)
             student_model.eval()
             

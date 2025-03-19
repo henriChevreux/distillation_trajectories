@@ -10,8 +10,11 @@ import torch
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from tqdm import tqdm
+import matplotlib.patches as mpatches
+from matplotlib.path import Path
 
 from utils.diffusion import get_diffusion_params
+from analysis.metrics.trajectory_metrics import compute_trajectory_metrics
 
 def generate_trajectory(model, noise, timesteps, device, seed=None):
     """
@@ -86,6 +89,92 @@ def generate_trajectory(model, noise, timesteps, device, seed=None):
             trajectory.append(x.detach().cpu())
     
     return trajectory
+
+def create_radar_plot(metrics, output_dir, size_factor):
+    """
+    Create a radar plot for trajectory metrics
+    
+    Args:
+        metrics: Dictionary of metrics
+        output_dir: Directory to save the visualization
+        size_factor: Size factor of the student model
+    """
+    # Define the metrics to include in the radar plot
+    radar_metrics = [
+        ('point_by_point_similarity', 'Point-by-Point\nSimilarity'),
+        ('log_mse_similarity', 'Log MSE\nSimilarity'),
+        ('weighted_directional_consistency', 'Weighted Directional\nConsistency'),
+        ('path_alignment', 'Path\nAlignment')
+    ]
+    
+    # Extract values for each metric
+    values = []
+    labels = []
+    
+    for key, label in radar_metrics:
+        if key in metrics:
+            # Ensure value is between 0 and 1
+            value = max(0, min(1, metrics[key]))
+            values.append(value)
+            labels.append(label)
+            print(f"  {label}: {value:.4f}")
+    
+    # Create radar plot
+    fig = plt.figure(figsize=(10, 10))
+    
+    # Create a figure with two subplots - radar plot and text summary
+    gs = plt.GridSpec(1, 1, figure=fig)
+    ax = fig.add_subplot(gs[0, 0], polar=True)
+    
+    # Number of metrics
+    N = len(values)
+    
+    # Angle of each axis
+    angles = [n / float(N) * 2 * np.pi for n in range(N)]
+    angles += angles[:1]  # Close the loop
+    
+    # Values for each metric
+    values += values[:1]  # Close the loop
+    
+    # Draw the plot
+    ax.plot(angles, values, linewidth=2, linestyle='solid', color='#3498db')
+    ax.fill(angles, values, alpha=0.25, color='#3498db')
+    
+    # Set the angle labels
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels)
+    
+    # Set y-axis limits
+    ax.set_ylim(0, 1)
+    
+    # Add grid lines
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_yticklabels(['0.2', '0.4', '0.6', '0.8', '1.0'])
+    ax.grid(True)
+    
+    # Add title with traditional metrics for comparison
+    title = f'Enhanced Trajectory Metrics (Size Factor: {size_factor})'
+    plt.title(title, size=15, y=1.1)
+    
+    # Add a text box with traditional metrics
+    traditional_metrics_text = (
+        f"Traditional Metrics:\n"
+        f"Path Length Similarity: {metrics.get('path_length_similarity', 0):.4f}\n"
+        f"MSE: {metrics.get('mse', 0):.6f}\n"
+        f"Mean Directional Consistency: {metrics.get('mean_directional_consistency', 0):.4f}\n"
+        f"Distribution Similarity: {metrics.get('distribution_similarity', 0):.4f}"
+    )
+    
+    # Add text box to the figure
+    plt.figtext(0.5, 0.01, traditional_metrics_text, ha='center', fontsize=10, 
+                bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
+    
+    # Save the radar plot
+    plt.tight_layout(rect=[0, 0.1, 1, 0.95])  # Adjust layout to make room for text
+    plt.savefig(os.path.join(output_dir, f'enhanced_metrics_radar_size_{size_factor}.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Radar plot saved to {os.path.join(output_dir, f'enhanced_metrics_radar_size_{size_factor}.png')}")
 
 def visualize_trajectories(teacher_trajectory, student_trajectory, output_dir, size_factor):
     """
@@ -193,6 +282,13 @@ def visualize_trajectories(teacher_trajectory, student_trajectory, output_dir, s
     plt.savefig(os.path.join(output_dir, f'simple_trajectory_comparison_size_{size_factor}.png'), dpi=300, bbox_inches='tight')
     plt.close()
     
+    # Compute enhanced metrics and create radar plot
+    print("\nComputing enhanced trajectory metrics...")
+    metrics = compute_trajectory_metrics(teacher_trajectory, student_trajectory)
+    
+    # Create radar plot with enhanced metrics
+    create_radar_plot(metrics, output_dir, size_factor)
+    
     # Create a 3D PCA plot if we have enough components
     if teacher_features.shape[1] >= 3:
         # Fit 3D PCA on teacher trajectory only
@@ -256,6 +352,9 @@ def compare_trajectories(teacher_model, student_model, config, size_factor=1.0):
         student_model: The student diffusion model
         config: Configuration object
         size_factor: Size factor of the student model
+        
+    Returns:
+        Tuple of (teacher_trajectory, student_trajectory)
     """
     # Set device
     device = next(teacher_model.parameters()).device
@@ -268,25 +367,87 @@ def compare_trajectories(teacher_model, student_model, config, size_factor=1.0):
     # Generate random noise
     noise = torch.randn(1, config.channels, config.image_size, config.image_size)
     
-    print(f"Generating teacher trajectory for size factor {size_factor}...")
+    # Generate trajectories
+    print("\nGenerating trajectories...")
+    print("Generating teacher trajectory...")
     teacher_trajectory = generate_trajectory(teacher_model, noise, config.timesteps, device, seed=seed)
-    
-    print(f"Generating student trajectory for size factor {size_factor}...")
+    print("Generating student trajectory...")
     student_trajectory = generate_trajectory(student_model, noise, config.timesteps, device, seed=seed)
     
     # Create output directory
-    output_dir = os.path.join(config.analysis_dir, "trajectory_comparison")
+    output_dir = os.path.join(os.path.dirname(__file__), 'trajectory_comparison')
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"Visualizing trajectories for size factor {size_factor}...")
+    # Visualize trajectories
+    print("\nVisualizing trajectories...")
     visualize_trajectories(teacher_trajectory, student_trajectory, output_dir, size_factor)
     
-    print(f"Trajectory comparison completed for size factor {size_factor}")
+    # Compute and print enhanced metrics
+    print("\nEnhanced Trajectory Metrics Summary:")
+    metrics = compute_trajectory_metrics(teacher_trajectory, student_trajectory)
     
-    return {
-        "teacher_trajectory_length": len(teacher_trajectory),
-        "student_trajectory_length": len(student_trajectory)
-    }
+    # Print the new metrics with explanations
+    print(f"  Point-by-Point Similarity: {metrics.get('point_by_point_similarity', 0):.4f}")
+    print(f"    (Measures direct correspondence between points in trajectories)")
+    
+    print(f"  Log MSE Similarity: {metrics.get('log_mse_similarity', 0):.4f}")
+    print(f"    (Logarithmic transformation of MSE to better highlight differences)")
+    
+    print(f"  Weighted Directional Consistency: {metrics.get('weighted_directional_consistency', 0):.4f}")
+    print(f"    (Directional consistency weighted by step magnitude)")
+    
+    print(f"  Path Alignment: {metrics.get('path_alignment', 0):.4f}")
+    print(f"    (Measures how closely student follows teacher's exact path)")
+    
+    # Also print traditional metrics for comparison
+    print("\nTraditional Metrics (for comparison):")
+    print(f"  Path Length Similarity: {metrics.get('path_length_similarity', 0):.4f}")
+    print(f"    (Only compares total path lengths, not actual paths)")
+    
+    print(f"  MSE: {metrics.get('mse', 0):.6f}")
+    print(f"  MSE Similarity (1-MSE): {1.0 - metrics.get('mse', 0):.6f}")
+    print(f"    (Very close to 1.0 for all models, masking differences)")
+    
+    print(f"  Mean Directional Consistency: {metrics.get('mean_directional_consistency', 0):.4f}")
+    print(f"    (Doesn't account for magnitude of movements)")
+    
+    print(f"  Distribution Similarity: {metrics.get('distribution_similarity', 0):.4f}")
+    print(f"    (Overall distribution similarity, not path-specific)")
+    
+    # Print a summary comparison
+    print("\nMetric Comparison Summary:")
+    print(f"  Size Factor: {size_factor}")
+    print(f"  Traditional Path Length Similarity: {metrics.get('path_length_similarity', 0):.4f}")
+    print(f"  Enhanced Path Alignment: {metrics.get('path_alignment', 0):.4f}")
+    print(f"  Difference: {metrics.get('path_length_similarity', 0) - metrics.get('path_alignment', 0):.4f}")
+    
+    # Save metrics to a file for later reference
+    metrics_file = os.path.join(output_dir, f'metrics_summary_size_{size_factor}.txt')
+    with open(metrics_file, 'w') as f:
+        f.write(f"Trajectory Metrics Summary for Size Factor {size_factor}\n")
+        f.write(f"=============================================\n\n")
+        
+        f.write("Enhanced Metrics:\n")
+        f.write(f"  Point-by-Point Similarity: {metrics.get('point_by_point_similarity', 0):.4f}\n")
+        f.write(f"  Log MSE Similarity: {metrics.get('log_mse_similarity', 0):.4f}\n")
+        f.write(f"  Weighted Directional Consistency: {metrics.get('weighted_directional_consistency', 0):.4f}\n")
+        f.write(f"  Path Alignment: {metrics.get('path_alignment', 0):.4f}\n\n")
+        
+        f.write("Traditional Metrics:\n")
+        f.write(f"  Path Length Similarity: {metrics.get('path_length_similarity', 0):.4f}\n")
+        f.write(f"  MSE: {metrics.get('mse', 0):.6f}\n")
+        f.write(f"  MSE Similarity (1-MSE): {1.0 - metrics.get('mse', 0):.6f}\n")
+        f.write(f"  Mean Directional Consistency: {metrics.get('mean_directional_consistency', 0):.4f}\n")
+        f.write(f"  Distribution Similarity: {metrics.get('distribution_similarity', 0):.4f}\n\n")
+        
+        f.write("Raw Measurements:\n")
+        f.write(f"  Teacher Path Length: {metrics.get('teacher_path_length', 0):.4f}\n")
+        f.write(f"  Student Path Length: {metrics.get('student_path_length', 0):.4f}\n")
+        f.write(f"  Path Length Ratio: {metrics.get('path_length_ratio', 0):.4f}\n")
+    
+    print(f"\nDetailed metrics saved to: {metrics_file}")
+    
+    return teacher_trajectory, student_trajectory
 
 if __name__ == "__main__":
     # This script is meant to be imported and used by run_analysis.py

@@ -22,6 +22,7 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
   - [🏗️ UNet Architecture Specifications](#️-unet-architecture-specifications)
   - [📊 Analysis Outputs](#-analysis-outputs)
     - [Trajectory Comparison Visualization](#trajectory-comparison-visualization)
+    - [Trajectory Radar Plot Analysis](#trajectory-radar-plot-analysis)
     - [Classifier-Free Guidance (CFG) Analysis](#classifier-free-guidance-cfg-analysis)
   - [❓ Troubleshooting](#-troubleshooting)
   - [📄 License](#-license)
@@ -294,6 +295,52 @@ For verification of trajectory determinism:
 ```bash
 python scripts/run_trajectory_verification.py
 ```
+
+### Trajectory Radar Plot Analysis
+
+The trajectory radar plot analysis provides a comprehensive visualization of key metrics across different model sizes using radar plots. This approach directly generates trajectories for each model and computes metrics based on those trajectories, ensuring a fair and consistent comparison.
+
+#### Key Features
+
+- **Direct Trajectory Generation**: Generates trajectories on-the-fly for each model using the same starting noise
+- **Multi-sample Averaging**: Averages metrics across multiple samples for more robust results
+- **Radar Plot Visualization**: Creates both individual and composite radar plots showing four key metrics:
+  - **Path Length Similarity**: How similar the student's trajectory length is to the teacher's
+  - **Endpoint Alignment**: How close the student's final image is to the teacher's
+  - **Directional Consistency**: How consistently the student follows the teacher's direction
+  - **Distribution Similarity**: Overall similarity between student and teacher trajectories
+- **Raw Metrics Option**: Can display metrics in their raw form without normalization for more accurate comparisons
+- **Customizable Size Factors**: Analyze any combination of model sizes
+
+#### Running Trajectory Radar Analysis
+
+To generate radar plots based on directly generated trajectories:
+
+```bash
+python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
+```
+
+By default, the script uses min-max scaling to normalize metrics to a [0,1] scale. To skip this normalization and use raw metrics instead (recommended for more accurate comparisons):
+
+```bash
+python scripts/edit_model_comparisons.py --skip_minmax
+python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
+```
+
+This will modify the model_comparisons.py file to use raw metrics instead of min-max scaling, providing a more direct representation of model performance differences.
+
+Options:
+- `--size_factors`: Comma-separated list of student model size factors to analyze
+- `--num_samples`: Number of trajectory samples to generate and average metrics over
+- `--teacher_model`: Path to teacher model relative to models directory (default: model_epoch_10.pt)
+- `--timesteps`: Number of timesteps for the diffusion process (default: 50)
+- `--output_dir`: Directory to save analysis results (default: analysis/trajectory_radar)
+
+The results are saved in the specified output directory:
+- `model_comparisons/radar_plot_grid.png`: Grid of individual radar plots for each model size
+- `model_comparisons/composite_radar_plot.png`: Single radar plot showing all model sizes together
+
+This analysis provides a more direct and accurate comparison of model performance than the standard analysis pipeline, as it ensures all models are evaluated on exactly the same trajectories.
 
 ### Classifier-Free Guidance (CFG) Analysis
 

@@ -18,8 +18,9 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from config.config import Config
-from models import SimpleUNet, StudentUNet
+from models import SimpleUNet, StudentUNet, DiffusionUNet
 from utils.diffusion import get_diffusion_params
+from analysis.trajectory_comparison import generate_trajectory as generate_standard_trajectory
 
 def extract(a, t, x_shape):
     """Extract coefficients at specified timesteps t"""
@@ -112,56 +113,12 @@ def generate_cfg_trajectory(model, noise, timesteps, guidance_scale, device, see
 def generate_trajectory_without_cfg(model, noise, timesteps, device, seed=None):
     """
     Generate a trajectory without using classifier-free guidance
+    
+    This function uses the same approach as the standard trajectory generation
+    used in the radar plots, ensuring consistency across analyses.
     """
-    model.eval()
-    trajectory = []
-    
-    # Make a copy of the noise to avoid modifying the original
-    x = noise.clone().to(device)
-    
-    # Get diffusion parameters
-    diffusion_params = get_diffusion_params(timesteps)
-    
-    # Record the starting point
-    trajectory.append(x.detach().cpu())
-    
-    # Set seed for reproducibility if provided
-    if seed is not None:
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-    
-    # Reverse diffusion process without CFG
-    for i in tqdm(reversed(range(timesteps)), desc='Generating trajectory'):
-        t = torch.full((1,), i, device=device, dtype=torch.long)
-        
-        # Get prediction without conditioning
-        with torch.no_grad():
-            pred = model(x, t)
-            
-            # Get diffusion parameters for this timestep
-            sqrt_one_minus_alphas_cumprod_t = extract(
-                diffusion_params['sqrt_one_minus_alphas_cumprod'], t, x.shape
-            )
-            sqrt_recip_alphas_t = extract(diffusion_params['sqrt_recip_alphas'], t, x.shape)
-            
-            # Direction pointing to x_t
-            pred_original_direction = (1. - sqrt_one_minus_alphas_cumprod_t) * pred
-            
-            # For the final step, completely eliminate noise and variance
-            if i == 0:
-                # Final deterministic step
-                x = sqrt_recip_alphas_t * (x - pred_original_direction)
-            else:
-                # Regular step with noise
-                noise = torch.randn_like(x)
-                betas_t = extract(diffusion_params['betas'], t, x.shape)
-                noise_scale = torch.sqrt(betas_t)
-                x = sqrt_recip_alphas_t * (x - pred_original_direction) + noise * noise_scale
-        
-        # Record the current state
-        trajectory.append(x.detach().cpu())
-    
-    return trajectory
+    # Simply use the standard trajectory generation function
+    return generate_standard_trajectory(model, noise, timesteps, device, seed)
 
 def compare_cfg_trajectories(teacher_model, student_model, config, guidance_scales=[1.0, 3.0, 5.0, 7.0], size_factor=1.0):
     """
