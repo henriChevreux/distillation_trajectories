@@ -1,7 +1,5 @@
 """
 Enhanced trajectory comparison visualization for diffusion models.
-This script extends the standard trajectory generation to support Classifier-Free Guidance (CFG),
-ensuring consistency across all analyses.
 """
 
 import os

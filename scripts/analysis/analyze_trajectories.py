@@ -14,7 +14,7 @@ from tqdm import tqdm
 from sklearn.decomposition import PCA
 
 # Add the project root directory to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
 from config.config import Config
@@ -44,7 +44,7 @@ def parse_args():
                         help='Number of samples to average over for more stable results')
     
     # Output parameters
-    parser.add_argument('--output_dir', type=str, default='analysis/cfg_trajectory_visualization',
+    parser.add_argument('--output_dir', type=str, default='analysis/trajectories',
                         help='Directory to save visualization results')
     
     return parser.parse_args()

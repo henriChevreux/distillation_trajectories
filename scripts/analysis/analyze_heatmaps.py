@@ -13,7 +13,7 @@ import torch
 from tqdm import tqdm
 
 # Add the project root directory to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
 from config.config import Config
@@ -40,7 +40,7 @@ def parse_args():
                         help='Number of noise samples to average over')
     
     # Output parameters
-    parser.add_argument('--output_dir', type=str, default='analysis/enhanced_cfg_impact',
+    parser.add_argument('--output_dir', type=str, default='analysis/heatmaps',
                         help='Directory to save analysis results')
     
     return parser.parse_args()

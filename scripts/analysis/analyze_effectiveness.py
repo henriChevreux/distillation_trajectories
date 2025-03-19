@@ -15,7 +15,7 @@ import glob
 import re
 
 # Add the project root directory to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
 from config.config import Config
@@ -34,7 +34,7 @@ def parse_args():
                         help='Comma-separated list of guidance scales to use')
     
     # Output parameters
-    parser.add_argument('--output_dir', type=str, default='analysis/cfg_consolidated',
+    parser.add_argument('--output_dir', type=str, default='analysis/effectiveness',
                         help='Directory to save consolidated graphs')
     
     return parser.parse_args()
