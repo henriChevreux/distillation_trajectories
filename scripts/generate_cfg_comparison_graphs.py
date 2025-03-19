@@ -71,10 +71,8 @@ def create_consolidated_cfg_graph(cfg_dir, output_dir, size_factors, guidance_sc
     # Define the color scheme to match the radar plots
     poster_colors = [
         '#6b68a9',  # Purple (darkest) - for largest model (1.0)
-        '#6570a4',  # Purple-blue 1
-        '#5f789f',  # Purple-blue 2
+        '#5f789f',  # Purple-blue
         '#59809a',  # Blue-purple 1
-        '#538895',  # Blue-purple 2
         '#4d9090',  # Blue
         '#47988b',  # Blue-teal 1
         '#41a086',  # Blue-teal 2

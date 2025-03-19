@@ -28,7 +28,7 @@ def parse_args():
     )
     
     # Model parameters
-    parser.add_argument('--teacher_model', type=str, default='model_epoch_10.pt',
+    parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
                         help='Path to teacher model relative to models directory')
     parser.add_argument('--size_factors', type=str, default='0.1,0.2,0.4,0.6,0.8,1.0',
                         help='Comma-separated list of size factors to compare')

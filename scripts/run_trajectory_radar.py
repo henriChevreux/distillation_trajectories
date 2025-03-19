@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 
 from config.config import Config
 from models import SimpleUNet, StudentUNet, DiffusionUNet
-from analysis.trajectory_comparison import generate_trajectory
+from analysis.enhanced_trajectory_comparison import generate_trajectory
 from analysis.metrics.trajectory_metrics import compute_trajectory_metrics
 from analysis.metrics.model_comparisons import create_radar_plot_grid, create_composite_radar_plot
 
@@ -30,7 +30,7 @@ def parse_args():
     )
     
     # Model parameters
-    parser.add_argument('--teacher_model', type=str, default='model_epoch_10.pt',
+    parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
                         help='Path to teacher model relative to models directory')
     parser.add_argument('--size_factors', type=str, default='0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0',
                         help='Comma-separated list of size factors to compare')

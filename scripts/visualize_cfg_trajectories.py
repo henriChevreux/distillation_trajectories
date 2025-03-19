@@ -30,7 +30,7 @@ def parse_args():
     )
     
     # Model parameters
-    parser.add_argument('--teacher_model', type=str, default='model_epoch_10.pt',
+    parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
                         help='Path to teacher model relative to models directory')
     parser.add_argument('--size_factor', type=float, default=0.5,
                         help='Size factor of the student model to visualize')
