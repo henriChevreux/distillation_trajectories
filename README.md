@@ -22,6 +22,8 @@ A comprehensive toolkit for analyzing diffusion models with a focus on model siz
   - [🏗️ UNet Architecture Specifications](#️-unet-architecture-specifications)
   - [📊 Analysis Outputs](#-analysis-outputs)
     - [Trajectory Comparison Visualization](#trajectory-comparison-visualization)
+    - [Trajectory Radar Plot Analysis](#trajectory-radar-plot-analysis)
+    - [Classifier-Free Guidance (CFG) Analysis](#classifier-free-guidance-cfg-analysis)
   - [❓ Troubleshooting](#-troubleshooting)
   - [📄 License](#-license)
   - [📝 Citation](#-citation)
@@ -42,6 +44,7 @@ The toolkit includes advanced visualization tools for comparing model trajectori
 - **Multi-device support**: CUDA, MPS, CPU
 - **Trajectory comparison**: PCA-based visualization of model trajectories with consistent reference frames
 - **Deterministic verification**: Tools to verify trajectory determinism and model consistency
+- **Classifier-Free Guidance analysis**: Visualize and quantify the impact of CFG on model trajectories
 
 ## 📦 Installation
 
@@ -69,6 +72,7 @@ distillation_trajectories/
 ├── analysis/                  # Analysis modules
 │   ├── dimensionality/        # Dimensionality reduction analysis
 │   ├── metrics/               # Trajectory metrics
+│   ├── cfg_trajectory_comparison/ # CFG trajectory analysis
 │   └── ...                    # Other analysis types
 ├── config/                    # Configuration
 ├── data/                      # Data handling
@@ -94,8 +98,11 @@ python scripts/train_teacher.py
 # Train student models with various size factors
 python scripts/train_students.py
 
-# Run analysis
+# Run analysis (runs all analysis scripts by default)
 python scripts/run_analysis.py
+
+# Run a specific analysis script
+python scripts/analyze_trajectories.py
 ```
 
 ## 📖 Usage Guide
@@ -112,7 +119,6 @@ python scripts/train_teacher.py [OPTIONS]
 
 Options:
 - `--epochs N`: Number of training epochs (default: 10)
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
 - `--image_size N`: Size of images (default: 16)
 - `--batch_size N`: Batch size (default: 64)
 - `--timesteps N`: Number of diffusion timesteps (default: 50)
@@ -128,7 +134,6 @@ python scripts/train_students.py [OPTIONS]
 Options:
 - `--epochs N`: Number of training epochs (default: 5, half of teacher epochs)
 - `--custom_size_factors "0.1,0.5,0.9"`: Specific size factors to train (default: [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
 - `--image_size N`: Size of images (default: 16)
 - `--batch_size N`: Batch size (default: 64)
 
@@ -147,21 +152,29 @@ python scripts/run_analysis.py [OPTIONS]
 ```
 
 Options:
-- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_{highest}.pt")
-- `--num_samples N`: Number of trajectory samples (default: 50)
-- `--teacher_steps N`: Teacher timesteps (default: 50)
-- `--student_steps N`: Student timesteps (default: 50)
-- `--analysis_dir NAME`: Directory to save analysis results (default: "analysis")
-- `--focus_size_range "0.1-0.5"`: Focus on specific size range (default: all sizes)
-- `--compare_specific_sizes "0.1,0.5,1.0"`: Compare specific sizes (default: all sizes)
+- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
+- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
 
-Skip specific analysis modules:
-- `--skip_metrics`: Skip trajectory metrics analysis (default: run this analysis)
-- `--skip_dimensionality`: Skip dimensionality reduction analysis (default: run this analysis)
-- `--skip_noise`: Skip noise prediction analysis (default: run this analysis)
-- `--skip_attention`: Skip attention map analysis (default: run this analysis)
-- `--skip_3d`: Skip 3D visualization (default: run this analysis)
-- `--skip_fid`: Skip FID calculation (default: run this analysis)
+Examples:
+```bash
+# Run all analysis with default teacher model
+python scripts/run_analysis.py
+
+# Run analysis with specific teacher model
+python scripts/run_analysis.py --teacher_model model_epoch_5.pt
+
+# Skip specific scripts
+python scripts/run_analysis.py --skip analyze_heatmaps analyze_radars
+
+# Combine options
+python scripts/run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
+```
+
+This will run the following analysis scripts in sequence:
+1. `analyze_heatmaps.py`: Generate heatmap visualizations
+2. `analyze_trajectories.py`: Analyze trajectory patterns
+3. `analyze_radars.py`: Generate radar plot visualizations
+4. `analyze_effectiveness.py`: Analyze model effectiveness metrics
 
 ### CPU Mode
 
@@ -263,6 +276,7 @@ All analysis results are organized in the `output/analysis/` directory:
 - **Attention Analysis** (`attention/`): Attention map visualizations
 - **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
 - **Trajectory Comparison** (`trajectory_comparison/`): Direct visual comparison of teacher and student model trajectories
+- **CFG Trajectory Analysis** (`cfg_trajectory_comparison/`): Analysis of how Classifier-Free Guidance affects model trajectories
 
 ### Trajectory Comparison Visualization
 
@@ -288,6 +302,99 @@ For verification of trajectory determinism:
 python scripts/run_trajectory_verification.py
 ```
 
+### Trajectory Radar Plot Analysis
+
+The trajectory radar plot analysis provides a comprehensive visualization of key metrics across different model sizes using radar plots. This approach directly generates trajectories for each model and computes metrics based on those trajectories, ensuring a fair and consistent comparison.
+
+#### Key Features
+
+- **Direct Trajectory Generation**: Generates trajectories on-the-fly for each model using the same starting noise
+- **Multi-sample Averaging**: Averages metrics across multiple samples for more robust results
+- **Radar Plot Visualization**: Creates both individual and composite radar plots showing four key metrics:
+  - **Path Length Similarity**: How similar the student's trajectory length is to the teacher's
+  - **Endpoint Alignment**: How close the student's final image is to the teacher's
+  - **Directional Consistency**: How consistently the student follows the teacher's direction
+  - **Distribution Similarity**: Overall similarity between student and teacher trajectories
+- **Raw Metrics Option**: Can display metrics in their raw form without normalization for more accurate comparisons
+- **Customizable Size Factors**: Analyze any combination of model sizes
+
+#### Running Trajectory Radar Analysis
+
+To generate radar plots based on directly generated trajectories:
+
+```bash
+python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
+```
+
+By default, the script uses min-max scaling to normalize metrics to a [0,1] scale. To skip this normalization and use raw metrics instead (recommended for more accurate comparisons):
+
+```bash
+python scripts/edit_model_comparisons.py --skip_minmax
+python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
+```
+
+This will modify the model_comparisons.py file to use raw metrics instead of min-max scaling, providing a more direct representation of model performance differences.
+
+Options:
+- `--size_factors`: Comma-separated list of student model size factors to analyze
+- `--num_samples`: Number of trajectory samples to generate and average metrics over
+- `--teacher_model`: Path to teacher model relative to models directory (default: model_epoch_10.pt)
+- `--timesteps`: Number of timesteps for the diffusion process (default: 50)
+- `--output_dir`: Directory to save analysis results (default: analysis/trajectory_radar)
+
+The results are saved in the specified output directory:
+- `model_comparisons/radar_plot_grid.png`: Grid of individual radar plots for each model size
+- `model_comparisons/composite_radar_plot.png`: Single radar plot showing all model sizes together
+
+This analysis provides a more direct and accurate comparison of model performance than the standard analysis pipeline, as it ensures all models are evaluated on exactly the same trajectories.
+
+### Classifier-Free Guidance (CFG) Analysis
+
+The CFG analysis module examines how Classifier-Free Guidance affects the trajectories of diffusion models and compares the impact across different model sizes. This analysis is crucial for understanding how guidance scales influence both teacher and student models.
+
+#### What is Classifier-Free Guidance?
+
+Classifier-Free Guidance (CFG) is a technique that improves sample quality in diffusion models by combining conditional and unconditional generation. During the sampling process, the model prediction is adjusted using:
+
+```
+prediction = unconditional_prediction + guidance_scale * (conditional_prediction - unconditional_prediction)
+```
+
+Where `guidance_scale` (w) controls the strength of the guidance. Higher values typically result in higher-quality but less diverse samples.
+
+#### Key Features of CFG Analysis
+
+- **Multi-scale Guidance**: Analyzes trajectories across different guidance scales (1.0, 3.0, 5.0, 7.0)
+- **Comparative Visualization**: Directly compares trajectories with and without CFG
+- **Similarity Metrics**: Quantifies the impact of CFG using cosine similarity and Euclidean distance
+- **Trajectory Divergence**: Visualizes how CFG causes trajectories to diverge from the non-guided path
+- **Teacher-Student Comparison**: Examines how CFG affects teacher vs. student models differently
+- **Final Image Comparison**: Shows the visual impact of different guidance scales on generated images
+
+#### Visualizations Included
+
+1. **Combined CFG Trajectories**: Shows all guidance scales in a single plot with a color gradient
+2. **CFG vs. No-CFG Trajectories**: Compares guided and non-guided trajectories for each scale
+3. **CFG vs. No-CFG Final Images**: Grid of final images comparing different guidance scales
+4. **CFG Similarity Metrics**: Plots showing how similarity between guided and non-guided trajectories changes with guidance scale
+5. **Trajectory Divergence**: Vector field visualization showing how CFG causes trajectories to diverge
+6. **Teacher-Student Similarity**: Analysis of how CFG affects the similarity between teacher and student models
+
+#### Running CFG Analysis
+
+To run the CFG trajectory comparison:
+
+```bash
+python scripts/run_cfg_trajectory_comparison.py --guidance_scales "1.0,3.0,5.0,7.0" --size_factors "0.3,1.0" --student_models "size_0.3/model_epoch_5.pt,size_1.0/model_epoch_5.pt"
+```
+
+Options:
+- `--guidance_scales`: Comma-separated list of guidance scales to analyze
+- `--size_factors`: Comma-separated list of student model size factors to analyze
+- `--student_models`: Comma-separated list of student model paths (relative to the students directory)
+
+The results are organized by epoch in the `output/analysis/cfg_trajectory_comparison/` directory.
+
 ## ❓ Troubleshooting
 
 Common issues:
@@ -309,3 +416,40 @@ If you use this toolkit in your research, please cite:
   author={Your Name},
   year={2024}
 }
+
+```
+
+## Analysis
+
+### Running All Analysis Scripts
+
+The `run_analysis.py` script provides a convenient way to run all analysis scripts in sequence:
+
+```bash
+python run_analysis.py [OPTIONS]
+```
+
+Options:
+- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
+- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
+
+Examples:
+```bash
+# Run all analysis with default teacher model
+python run_analysis.py
+
+# Run analysis with specific teacher model
+python run_analysis.py --teacher_model model_epoch_5.pt
+
+# Skip specific scripts
+python run_analysis.py --skip analyze_heatmaps analyze_radars
+
+# Combine options
+python run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
+```
+
+This will run the following analysis scripts in sequence:
+1. `analyze_heatmaps.py`: Generate heatmap visualizations
+2. `analyze_trajectories.py`: Analyze trajectory patterns
+3. `analyze_radars.py`: Generate radar plot visualizations
+4. `analyze_effectiveness.py`: Analyze model effectiveness metrics

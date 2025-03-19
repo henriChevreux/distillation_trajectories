@@ -41,8 +41,6 @@ def main():
             from scripts.train_teacher import main as script_main
         elif args.script == 'train_students':
             from scripts.train_students import main as script_main
-        elif args.script == 'run_analysis':
-            from scripts.run_analysis import main as script_main
         else:
             print(f"Unknown script: {args.script}")
             return

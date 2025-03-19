@@ -67,8 +67,13 @@ def train_teacher(config):
             # Sample random timesteps
             t = torch.randint(0, config.timesteps, (images.shape[0],), device=device).long()
             
-            # Calculate loss
-            loss = p_losses(model, images, t, diffusion_params)
+            # Calculate loss with both conditional and unconditional samples
+            # For unconditional samples, we pass None as the condition
+            loss_cond = p_losses(model, images, t, diffusion_params, cond=torch.ones(images.shape[0], 1).to(device))
+            loss_uncond = p_losses(model, images, t, diffusion_params, cond=None)
+            
+            # Total loss is the average of conditional and unconditional losses
+            loss = (loss_cond + loss_uncond) / 2
             loss.backward()
             optimizer.step()
             

@@ -5,7 +5,6 @@ Analysis module for diffusion model trajectories
 from analysis.metrics.trajectory_metrics import compute_trajectory_metrics, visualize_metrics, visualize_batch_metrics
 from analysis.dimensionality.dimensionality_reduction import dimensionality_reduction_analysis
 from analysis.noise_prediction.noise_analysis import analyze_noise_prediction
-from analysis.attention_maps.attention_analysis import analyze_attention_maps
 from analysis.dimensionality.latent_space import generate_latent_space_visualization
 from analysis.visualization.model_size_viz import generate_3d_model_size_visualization
 from analysis.metrics.model_comparisons import create_model_size_comparisons

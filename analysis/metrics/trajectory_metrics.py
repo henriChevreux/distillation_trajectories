@@ -55,6 +55,33 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     endpoint_distance = torch.norm(teacher_images[-1] - student_images[-1]).item()
     metrics['endpoint_distance'] = endpoint_distance
     
+    # Compute MSE between final images
+    mse = torch.mean((teacher_images[-1] - student_images[-1]) ** 2).item()
+    metrics['mse'] = mse
+    
+    # NEW METRIC 1: Point-by-point trajectory similarity
+    # Calculate the average distance between corresponding points in the trajectories
+    min_length = min(len(teacher_images), len(student_images))
+    point_distances = []
+    
+    for i in range(min_length):
+        distance = torch.norm(teacher_images[i] - student_images[i]).item()
+        point_distances.append(distance)
+    
+    avg_point_distance = np.mean(point_distances) if point_distances else float('inf')
+    # Convert to similarity (lower distance = higher similarity)
+    # Use a more discriminative scaling factor (5.0 instead of 1.0)
+    # This will make differences more apparent
+    point_by_point_similarity = np.exp(-5.0 * avg_point_distance)
+    metrics['point_by_point_similarity'] = point_by_point_similarity
+    
+    # NEW METRIC 2: Logarithmic MSE transformation
+    # Apply logarithmic transformation to better highlight differences
+    # Increase scaling factor to make differences more apparent
+    scaling_factor = 5000  # Increased from 1000
+    log_mse_similarity = 1.0 - np.log1p(mse * scaling_factor) / np.log1p(scaling_factor)
+    metrics['log_mse_similarity'] = max(0, log_mse_similarity)  # Ensure non-negative
+    
     # Compute path length for teacher and student
     teacher_path_length = 0
     student_path_length = 0
@@ -114,21 +141,9 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     metrics['velocity_similarities'] = velocity_similarities
     metrics['mean_velocity_similarity'] = np.mean(velocity_similarities) if velocity_similarities else 0.0
     
-    # Compute acceleration profile
-    teacher_accelerations = []
-    student_accelerations = []
-    
-    for i in range(1, len(teacher_velocities)):
-        teacher_accelerations.append(teacher_velocities[i] - teacher_velocities[i-1])
-    
-    for i in range(1, len(student_velocities)):
-        student_accelerations.append(student_velocities[i] - student_velocities[i-1])
-    
-    metrics['teacher_accelerations'] = teacher_accelerations
-    metrics['student_accelerations'] = student_accelerations
-    
-    # Add timestep-by-timestep position difference metric
+    # Measure position differences at each timestep
     position_differences = []
+    
     for i in range(min(len(teacher_images), len(student_images))):
         position_differences.append(torch.norm(teacher_images[i] - student_images[i]).item())
     
@@ -138,6 +153,10 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     
     # Measure directional consistency (how consistently student moves in same direction as teacher)
     directional_consistency = []
+    
+    # NEW METRIC 3: Weighted directional consistency
+    weighted_directional_consistency = []
+    
     for i in range(min(len(teacher_images), len(student_images))-1):
         # Teacher direction vector
         t_dir = teacher_images[i+1] - teacher_images[i]
@@ -154,9 +173,89 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
             s_dir_flat = s_dir.flatten()
             cos_sim = torch.sum(t_dir_flat * s_dir_flat) / (torch.norm(t_dir_flat) * torch.norm(s_dir_flat))
             directional_consistency.append(cos_sim.item())
+            
+            # Weight by the magnitude of the movement (average of teacher and student)
+            weight = (t_dir_norm.item() + s_dir_norm.item()) / 2
+            weighted_cos_sim = cos_sim.item() * weight
+            weighted_directional_consistency.append(weighted_cos_sim)
     
     metrics['directional_consistency'] = directional_consistency
     metrics['mean_directional_consistency'] = np.mean(directional_consistency) if directional_consistency else 0.0
+    
+    # Calculate weighted directional consistency
+    if weighted_directional_consistency:
+        total_weight = sum((teacher_velocities[i] + student_velocities[i])/2 
+                          for i in range(min(len(teacher_velocities), len(student_velocities))))
+        
+        weighted_mean = sum(weighted_directional_consistency) / total_weight if total_weight > 0 else 0
+        # Apply a power transformation to make differences more apparent
+        # This will pull values away from 1.0
+        weighted_mean = weighted_mean ** 2
+        metrics['weighted_directional_consistency'] = weighted_mean
+    else:
+        metrics['weighted_directional_consistency'] = 0.0
+    
+    # NEW METRIC 4: Path alignment metric
+    # This measures how closely the student follows the teacher's exact path
+    # by computing the area between the two trajectories in latent space
+    
+    # First, we need to ensure both trajectories have the same number of points
+    # We'll use linear interpolation to resample the longer trajectory
+    if len(teacher_images) != len(student_images):
+        # Determine which trajectory is longer
+        if len(teacher_images) > len(student_images):
+            longer = teacher_images
+            shorter = student_images
+            longer_is_teacher = True
+        else:
+            longer = student_images
+            shorter = teacher_images
+            longer_is_teacher = False
+        
+        # Create a normalized time axis for both trajectories
+        longer_time = np.linspace(0, 1, len(longer))
+        shorter_time = np.linspace(0, 1, len(shorter))
+        
+        # Flatten images for interpolation
+        longer_flat = [img.flatten().cpu().numpy() for img in longer]
+        shorter_flat = [img.flatten().cpu().numpy() for img in shorter]
+        
+        # Interpolate the longer trajectory to match the shorter one
+        from scipy.interpolate import interp1d
+        
+        # Create interpolation function for each dimension
+        interp_funcs = []
+        for dim in range(len(longer_flat[0])):
+            values = [img[dim] for img in longer_flat]
+            interp_funcs.append(interp1d(longer_time, values))
+        
+        # Resample the longer trajectory
+        resampled = []
+        for t in shorter_time:
+            point = np.array([func(t) for func in interp_funcs])
+            resampled.append(point)
+        
+        # Replace the longer trajectory with the resampled one
+        if longer_is_teacher:
+            teacher_flat = resampled
+            student_flat = shorter_flat
+        else:
+            teacher_flat = shorter_flat
+            student_flat = resampled
+    else:
+        # If they have the same length, just flatten
+        teacher_flat = [img.flatten().cpu().numpy() for img in teacher_images]
+        student_flat = [img.flatten().cpu().numpy() for img in student_images]
+    
+    # Calculate the area between trajectories (sum of point-wise distances)
+    path_distances = [np.linalg.norm(t - s) for t, s in zip(teacher_flat, student_flat)]
+    path_area = np.sum(path_distances)
+    
+    # Convert to a similarity metric (0 to 1, where 1 is perfect alignment)
+    # Use a more discriminative scaling factor (10.0 instead of 1.0)
+    # This will make differences more apparent
+    path_alignment = np.exp(-10.0 * path_area / len(path_distances))
+    metrics['path_alignment'] = path_alignment
     
     # Compute Wasserstein distance between distributions
     # Flatten images to compute distribution

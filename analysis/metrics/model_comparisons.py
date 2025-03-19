@@ -70,7 +70,7 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
     
     # First, collect all metrics to find min and max values for min-max scaling
     all_path_length_similarities = []
-    all_endpoint_distances = []
+    all_mse_values = []
     all_directional_consistencies = []
     all_distribution_similarities = []
     
@@ -79,38 +79,68 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         
         # Extract raw metric values
         path_length_similarity = metrics.get('path_length_similarity', 1.0)
-        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        mse = metrics.get('mse', 0.0)  # Use MSE instead of endpoint distance
         directional_consistency = metrics.get('mean_directional_consistency', 0.0)
         distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
         all_path_length_similarities.append(path_length_similarity)
-        all_endpoint_distances.append(endpoint_distance)
+        all_mse_values.append(mse)
         all_directional_consistencies.append(directional_consistency)
         all_distribution_similarities.append(distribution_similarity)
     
     # Calculate min and max for each metric
     min_path_similarity = min(all_path_length_similarities) if all_path_length_similarities else 0.0
     max_path_similarity = max(all_path_length_similarities) if all_path_length_similarities else 1.0
-    min_endpoint = min(all_endpoint_distances) if all_endpoint_distances else 0.0
-    max_endpoint = max(all_endpoint_distances) if all_endpoint_distances else 1.0
+    min_mse = min(all_mse_values) if all_mse_values else 0.0
+    max_mse = max(all_mse_values) if all_mse_values else 1.0
     min_directional = min(all_directional_consistencies) if all_directional_consistencies else 0.0
     max_directional = max(all_directional_consistencies) if all_directional_consistencies else 1.0
     min_distribution = min(all_distribution_similarities) if all_distribution_similarities else 0.0
     max_distribution = max(all_distribution_similarities) if all_distribution_similarities else 1.0
     
     # Setup figure for the grid
-    n_cols = min(3, len(size_factors))
-    n_rows = int(np.ceil(len(size_factors) / n_cols))
+    n_cols = 3  # Default to 3 columns
+    n_rows = (len(size_factors) + n_cols - 1) // n_cols  # Calculate rows needed
+    
+    # Ensure we have enough rows and columns for all size factors
+    if n_rows * n_cols < len(size_factors):
+        n_cols = 4  # Increase to 4 columns if needed
+        n_rows = (len(size_factors) + n_cols - 1) // n_cols
+    
+    print(f"  Creating grid with {n_rows} rows and {n_cols} columns for {len(size_factors)} size factors")
     
     fig = plt.figure(figsize=(n_cols * 5, n_rows * 5))
     gs = gridspec.GridSpec(n_rows, n_cols)
     
-    # Use a consistent set of colors for radar plots
-    # These colors should be distinguishable and visually pleasing
-    colors = plt.cm.tab10(np.linspace(0, 1, 10))
+    # Use a consistent set of colors for radar plots that match the poster's color scheme
+    # Expanded purple to teal/blue gradient with more contrast between smallest and largest models
+    poster_colors = [
+        '#6b68a9',  # Purple (darkest) - for largest model (1.0)
+        '#6570a4',  # Purple-blue 1
+        '#5f789f',  # Purple-blue 2
+        '#59809a',  # Blue-purple 1
+        '#538895',  # Blue-purple 2
+        '#4d9090',  # Blue
+        '#47988b',  # Blue-teal 1
+        '#41a086',  # Blue-teal 2
+        '#35b07c'   # Teal (lightest) - for smallest model (0.1)
+    ]
+    
+    # Reverse the color order so smallest models get lightest colors and largest get darkest
+    poster_colors = poster_colors[::-1]
+    
+    # Create a fixed mapping of size factors to colors
+    # This ensures consistent colors regardless of which subset of models is plotted
+    standard_size_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    
+    # Make sure we have enough colors for all size factors
+    while len(poster_colors) < len(standard_size_factors):
+        poster_colors = poster_colors + poster_colors
+        
+    color_mapping = {sf: poster_colors[i % len(poster_colors)] for i, sf in enumerate(standard_size_factors)}
     
     # Set labels for radar chart axes
-    labels = ['Path Length\nSimilarity', 'Endpoint\nAlignment', 'Directional\nConsistency', 'Distribution\nSimilarity']
+    labels = ['Path Length\nSimilarity', 'MSE Similarity', 'Directional\nConsistency', 'Distribution\nSimilarity']
     
     # Setup axes for each radar plot
     for i, size_factor in enumerate(size_factors):
@@ -118,39 +148,31 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         
         # Get the raw metric values
         path_length_similarity = metrics.get('path_length_similarity', 1.0)
-        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        mse = metrics.get('mse', 0.0)  # Use MSE instead of endpoint distance
         directional_consistency = metrics.get('mean_directional_consistency', 0.0)
         distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
-        # Normalize: path_length_similarity (higher is better)
-        # Already in [0,1], so we can use it directly
+        # Use raw metrics directly without scaling, except for directional consistency
+        # For path_length_similarity (higher is better): already in [0,1]
         path_length_score = path_length_similarity
         
-        # Normalize: endpoint_distance (lower is better)
-        # Convert to a score where 1.0 is best (lowest distance)
-        # Prevent division by zero
-        endpoint_range = max_endpoint - min_endpoint
-        if endpoint_range > 0:
-            endpoint_distance_score = 1.0 - ((endpoint_distance - min_endpoint) / endpoint_range)
-        else:
-            endpoint_distance_score = 1.0
+        # For MSE (lower is better): convert to MSE Similarity (1 - MSE)
+        mse_similarity = 1.0 - mse
         
-        # Normalize: directional_consistency (higher is better)
-        # Already in [-1,1], scale to [0,1] where 1 is best
+        # For directional_consistency (higher is better): normalize from [-1,1] to [0,1]
         directional_score = (directional_consistency + 1) / 2 if directional_consistency != float('nan') else 0.5
         
-        # Normalize: distribution_similarity (higher is better)
-        # Already in [0,1], so we can use it directly
+        # For distribution_similarity (higher is better): already in [0,1]
         distribution_score = distribution_similarity
         
         # Combine the metrics into the order we want for the radar plot
         # Order: Path Length (top), Endpoint Dist (left), Directional Consistency (bottom), Distribution Similarity (right)
-        values = [path_length_score, endpoint_distance_score, directional_score, distribution_score]
+        values = [path_length_score, mse_similarity, directional_score, distribution_score]
         
         # Print diagnostic information to verify metric values
         print(f"  Size {size_factor} metrics:")
         print(f"    Path Length Similarity: {path_length_similarity:.4f} → Score: {path_length_score:.4f}")
-        print(f"    Endpoint Distance: {endpoint_distance:.4f} → Score: {endpoint_distance_score:.4f}")
+        print(f"    MSE: {mse:.4f} → MSE Similarity: {mse_similarity:.4f}")
         print(f"    Directional Consistency: {directional_consistency:.4f} → Score: {directional_score:.4f}")
         print(f"    Distribution Similarity: {distribution_similarity:.4f} → Score: {distribution_score:.4f}")
         
@@ -164,8 +186,8 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         # Add the values for each axis, also closing the loop
         values += values[:1]
         
-        # Select color for this radar plot
-        color = colors[i % len(colors)]
+        # Select color for this radar plot based on fixed mapping
+        color = color_mapping.get(size_factor, poster_colors[i % len(poster_colors)])
         
         # Create the radar chart
         ax = plt.subplot(gs[i], polar=True)
@@ -181,10 +203,10 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         # Draw radial lines and circles
         ax.grid(True, alpha=0.3, linestyle='-')
         
-        # Set y-ticks (concentric circles)
-        ax.set_yticks([0.25, 0.5, 0.75, 1.0])
-        ax.set_yticklabels(['0.25', '0.5', '0.75', '1.0'], fontsize=8, alpha=0.7)
-        ax.set_rlim(0, 1)
+        # Set y-ticks (concentric circles) - Modified to start from 0.7 with two decimal places
+        ax.set_yticks([0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
+        ax.set_yticklabels(['0.70', '0.75', '0.80', '0.85', '0.90', '0.95', '1.00'], fontsize=8, alpha=0.7)
+        ax.set_rlim(0.7, 1)
         
         # Plot the metrics with thicker line
         ax.plot(angles, values, linewidth=1.5, linestyle='solid', color=color)
@@ -196,7 +218,7 @@ def create_radar_plot_grid(metrics_by_size, config, output_dir=None):
         ax.plot(angles, values, linewidth=0.5, linestyle='solid', color='black', alpha=0.3)
         
         # Set the title with increased padding to avoid overlapping with Path Length Similarity label
-        ax.set_title(f"Model Size {size_factor}", size=12, weight='bold', pad=20)  # Increased pad from 15 to 20
+        ax.set_title(f"Model Size {size_factor}", size=12, weight='bold', pad=30)  # Increased pad from 20 to 30
     
     # Adjust layout to prevent overlap
     plt.tight_layout()
@@ -218,7 +240,7 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     direct comparison of all model sizes on the same axes. The plot uses the same four
     metrics as the grid:
     - Path Length Similarity (top)
-    - Endpoint Alignment (left)
+    - MSE (left)
     - Directional Consistency (bottom)
     - Distribution Similarity (right)
     
@@ -258,7 +280,7 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     
     # First, collect all metrics to find min and max values for min-max scaling
     all_path_length_similarities = []
-    all_endpoint_distances = []
+    all_mse_values = []
     all_directional_consistencies = []
     all_distribution_similarities = []
     
@@ -266,20 +288,20 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
         metrics = metrics_by_size[size_factor]
         
         path_length_similarity = metrics.get('path_length_similarity', 1.0)
-        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        mse = metrics.get('mse', 0.0)  # Use MSE instead of endpoint distance
         directional_consistency = metrics.get('mean_directional_consistency', 0.0)
         distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
         all_path_length_similarities.append(path_length_similarity)
-        all_endpoint_distances.append(endpoint_distance)
+        all_mse_values.append(mse)
         all_directional_consistencies.append(directional_consistency)
         all_distribution_similarities.append(distribution_similarity)
     
     # Calculate min and max for each metric
     min_path_similarity = min(all_path_length_similarities) if all_path_length_similarities else 0.0
     max_path_similarity = max(all_path_length_similarities) if all_path_length_similarities else 1.0
-    min_endpoint = min(all_endpoint_distances) if all_endpoint_distances else 0.0
-    max_endpoint = max(all_endpoint_distances) if all_endpoint_distances else 1.0
+    min_mse = min(all_mse_values) if all_mse_values else 0.0
+    max_mse = max(all_mse_values) if all_mse_values else 1.0
     min_directional = min(all_directional_consistencies) if all_directional_consistencies else 0.0
     max_directional = max(all_directional_consistencies) if all_directional_consistencies else 1.0
     min_distribution = min(all_distribution_similarities) if all_distribution_similarities else 0.0
@@ -288,8 +310,35 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     # Set up the figure
     fig = plt.figure(figsize=(10, 8))
     
+    # Use a color map that matches the poster's color scheme with more contrast
+    # Expanded with more intermediate colors
+    poster_colors = [
+        '#6b68a9',  # Purple (darkest) - for largest model (1.0)
+        '#6570a4',  # Purple-blue 1
+        '#5f789f',  # Purple-blue 2
+        '#59809a',  # Blue-purple 1
+        '#538895',  # Blue-purple 2
+        '#4d9090',  # Blue
+        '#47988b',  # Blue-teal 1
+        '#41a086',  # Blue-teal 2
+        '#35b07c'   # Teal (lightest) - for smallest model (0.1)
+    ]
+    
+    # Reverse the color order so smallest models get lightest colors and largest get darkest
+    poster_colors = poster_colors[::-1]
+    
+    # Create a fixed mapping of size factors to colors
+    # This ensures consistent colors regardless of which subset of models is plotted
+    standard_size_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    
+    # Make sure we have enough colors for all size factors
+    while len(poster_colors) < len(standard_size_factors):
+        poster_colors = poster_colors + poster_colors
+        
+    color_mapping = {sf: poster_colors[i % len(poster_colors)] for i, sf in enumerate(standard_size_factors)}
+    
     # Set labels for radar chart axes
-    labels = ['Path Length\nSimilarity', 'Endpoint\nAlignment', 'Directional\nConsistency', 'Distribution\nSimilarity']
+    labels = ['Path Length\nSimilarity', 'MSE Similarity', 'Directional\nConsistency', 'Distribution\nSimilarity']
     
     # Number of metrics/axes
     N = len(labels)
@@ -297,11 +346,6 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     # Set the angle for each axis (divide the plot into equal parts)
     angles = [n / float(N) * 2 * np.pi for n in range(N)]
     angles += angles[:1]  # Close the loop
-    
-    # Use a color map that clearly differentiates the different models
-    # viridis is a good choice for sequential data like model sizes
-    cmap = plt.cm.viridis
-    colors = cmap(np.linspace(0, 0.9, len(size_factors)))
     
     # Create the axis for the radar chart
     ax = plt.subplot(111, polar=True)
@@ -317,10 +361,10 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     # Draw radial lines and circles
     ax.grid(True, alpha=0.3, linestyle='-')
     
-    # Set y-ticks (concentric circles)
-    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
-    ax.set_yticklabels(['0.25', '0.5', '0.75', '1.0'], fontsize=10, alpha=0.7)
-    ax.set_rlim(0, 1)
+    # Set y-ticks (concentric circles) - Modified to start from 0.7 with two decimal places
+    ax.set_yticks([0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00])
+    ax.set_yticklabels(['0.70', '0.75', '0.80', '0.85', '0.90', '0.95', '1.00'], fontsize=10, alpha=0.7)
+    ax.set_rlim(0.7, 1)
     
     # Create a legend
     legend_elements = []
@@ -331,41 +375,32 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
         
         # Get the raw metric values
         path_length_similarity = metrics.get('path_length_similarity', 1.0)
-        endpoint_distance = metrics.get('endpoint_distance', 0.0)
+        mse = metrics.get('mse', 0.0)  # Use MSE instead of endpoint distance
         directional_consistency = metrics.get('mean_directional_consistency', 0.0)
         distribution_similarity = metrics.get('distribution_similarity', 0.0)
         
-        # Normalize the metrics for radar plot
-        # path_length_similarity (higher is better)
-        # Already in [0,1], so we can use it directly
+        # Use raw metrics directly without scaling, except for directional consistency
+        # For path_length_similarity (higher is better): already in [0,1]
         path_length_score = path_length_similarity
         
-        # endpoint_distance (lower is better)
-        # Convert to a score where 1.0 is best (lowest distance)
-        # Prevent division by zero
-        endpoint_range = max_endpoint - min_endpoint
-        if endpoint_range > 0:
-            endpoint_distance_score = 1.0 - ((endpoint_distance - min_endpoint) / endpoint_range)
-        else:
-            endpoint_distance_score = 1.0
+        # For MSE (lower is better): convert to MSE Similarity (1 - MSE)
+        mse_similarity = 1.0 - mse
         
-        # directional_consistency (higher is better)
-        # Already in [-1,1], scale to [0,1] where 1 is best
+        # For directional_consistency (higher is better): normalize from [-1,1] to [0,1]
         directional_score = (directional_consistency + 1) / 2 if directional_consistency != float('nan') else 0.5
         
-        # distribution_similarity (higher is better)
-        # Already in [0,1], so we can use it directly
+        # For distribution_similarity (higher is better): already in [0,1]
         distribution_score = distribution_similarity
         
         # Combine the metrics into the order we want for the radar plot
         # Order: Path Length (top), Endpoint Dist (left), Directional Consistency (bottom), Distribution Similarity (right)
-        values = [path_length_score, endpoint_distance_score, directional_score, distribution_score]
+        values = [path_length_score, mse_similarity, directional_score, distribution_score]
         
         # Add the values for each axis, also closing the loop
         values += values[:1]
         
-        # Select color for this radar plot
-        color = colors[i]
+        # Select color for this radar plot based on fixed mapping
+        color = color_mapping.get(size_factor, poster_colors[i % len(poster_colors)])
         
         # Plot the metrics with thicker line
         ax.plot(angles, values, linewidth=2, linestyle='solid', color=color, label=f"Size {size_factor}")
@@ -376,8 +411,8 @@ def create_composite_radar_plot(metrics_by_size, config, output_dir=None):
     # Add legend outside the radar plot
     plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
     
-    # Set title
-    plt.title('Trajectory Metrics Comparison Across Model Sizes', size=14, weight='bold', pad=20)
+    # Set title with increased padding
+    plt.title('Trajectory Metrics Comparison Across Model Sizes', size=14, weight='bold', pad=30)  # Increased pad from 20 to 30
     
     # Adjust layout
     plt.tight_layout()
