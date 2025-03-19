@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 
 from config.config import Config
 from models import SimpleUNet, StudentUNet, DiffusionUNet
-from analysis.enhanced_trajectory_comparison import generate_trajectory
+from analysis.trajectory_engine import generate_trajectory
 from analysis.metrics.trajectory_metrics import compute_trajectory_metrics
 from analysis.metrics.model_comparisons import create_radar_plot_grid, create_composite_radar_plot
 

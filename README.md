@@ -98,11 +98,11 @@ python scripts/train_teacher.py
 # Train student models with various size factors
 python scripts/train_students.py
 
-# Run analysis
+# Run analysis (runs all analysis scripts by default)
 python scripts/run_analysis.py
 
-# Run CFG trajectory analysis
-python scripts/run_cfg_trajectory_comparison.py
+# Run a specific analysis script
+python scripts/analyze_trajectories.py
 ```
 
 ## 📖 Usage Guide
