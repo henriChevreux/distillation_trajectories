@@ -192,19 +192,6 @@ def main():
     np.save(metrics_file, metrics_by_size)
     print(f"Metrics data saved to: {metrics_file}")
     
-    # Generate line graphs using the new script
-    try:
-        print("\nGenerating metric line graphs...")
-        from generate_metric_lines import generate_metric_line_graphs
-        
-        # Generate line graphs with all available metrics
-        line_graph_path, line_grid_path = generate_metric_line_graphs(metrics_by_size, model_comparisons_dir)
-        print(f"Line graph saved to: {line_graph_path}")
-        print(f"Line grid saved to: {line_grid_path}")
-    except ImportError:
-        print("Could not import generate_metric_lines module. Line graphs not generated.")
-        print("Run 'python scripts/generate_metric_lines.py' to generate line graphs.")
-    
     print("\nTrajectory radar analysis completed")
     print(f"Results saved in {output_dir}")
 
