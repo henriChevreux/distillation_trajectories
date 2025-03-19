@@ -119,7 +119,6 @@ python scripts/train_teacher.py [OPTIONS]
 
 Options:
 - `--epochs N`: Number of training epochs (default: 10)
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
 - `--image_size N`: Size of images (default: 16)
 - `--batch_size N`: Batch size (default: 64)
 - `--timesteps N`: Number of diffusion timesteps (default: 50)
@@ -135,7 +134,6 @@ python scripts/train_students.py [OPTIONS]
 Options:
 - `--epochs N`: Number of training epochs (default: 5, half of teacher epochs)
 - `--custom_size_factors "0.1,0.5,0.9"`: Specific size factors to train (default: [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-- `--dataset [MNIST|CIFAR10]`: Dataset to use (default: CIFAR10)
 - `--image_size N`: Size of images (default: 16)
 - `--batch_size N`: Batch size (default: 64)
 
@@ -154,21 +152,29 @@ python scripts/run_analysis.py [OPTIONS]
 ```
 
 Options:
-- `--teacher_model NAME`: Teacher model filename (default: "model_epoch_{highest}.pt")
-- `--num_samples N`: Number of trajectory samples (default: 50)
-- `--teacher_steps N`: Teacher timesteps (default: 50)
-- `--student_steps N`: Student timesteps (default: 50)
-- `--analysis_dir NAME`: Directory to save analysis results (default: "analysis")
-- `--focus_size_range "0.1-0.5"`: Focus on specific size range (default: all sizes)
-- `--compare_specific_sizes "0.1,0.5,1.0"`: Compare specific sizes (default: all sizes)
+- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
+- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
 
-Skip specific analysis modules:
-- `--skip_metrics`: Skip trajectory metrics analysis (default: run this analysis)
-- `--skip_dimensionality`: Skip dimensionality reduction analysis (default: run this analysis)
-- `--skip_noise`: Skip noise prediction analysis (default: run this analysis)
-- `--skip_attention`: Skip attention map analysis (default: run this analysis)
-- `--skip_3d`: Skip 3D visualization (default: run this analysis)
-- `--skip_fid`: Skip FID calculation (default: run this analysis)
+Examples:
+```bash
+# Run all analysis with default teacher model
+python scripts/run_analysis.py
+
+# Run analysis with specific teacher model
+python scripts/run_analysis.py --teacher_model model_epoch_5.pt
+
+# Skip specific scripts
+python scripts/run_analysis.py --skip analyze_heatmaps analyze_radars
+
+# Combine options
+python scripts/run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
+```
+
+This will run the following analysis scripts in sequence:
+1. `analyze_heatmaps.py`: Generate heatmap visualizations
+2. `analyze_trajectories.py`: Analyze trajectory patterns
+3. `analyze_radars.py`: Generate radar plot visualizations
+4. `analyze_effectiveness.py`: Analyze model effectiveness metrics
 
 ### CPU Mode
 
@@ -410,3 +416,40 @@ If you use this toolkit in your research, please cite:
   author={Your Name},
   year={2024}
 }
+
+```
+
+## Analysis
+
+### Running All Analysis Scripts
+
+The `run_analysis.py` script provides a convenient way to run all analysis scripts in sequence:
+
+```bash
+python run_analysis.py [OPTIONS]
+```
+
+Options:
+- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
+- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
+
+Examples:
+```bash
+# Run all analysis with default teacher model
+python run_analysis.py
+
+# Run analysis with specific teacher model
+python run_analysis.py --teacher_model model_epoch_5.pt
+
+# Skip specific scripts
+python run_analysis.py --skip analyze_heatmaps analyze_radars
+
+# Combine options
+python run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
+```
+
+This will run the following analysis scripts in sequence:
+1. `analyze_heatmaps.py`: Generate heatmap visualizations
+2. `analyze_trajectories.py`: Analyze trajectory patterns
+3. `analyze_radars.py`: Generate radar plot visualizations
+4. `analyze_effectiveness.py`: Analyze model effectiveness metrics

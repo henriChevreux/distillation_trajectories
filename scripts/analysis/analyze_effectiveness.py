@@ -32,10 +32,11 @@ def parse_args():
                         help='Comma-separated list of size factors to include')
     parser.add_argument('--guidance_scales', type=str, default='1.0,2.0,3.0,5.0,7.0',
                         help='Comma-separated list of guidance scales to use')
-    
     # Output parameters
     parser.add_argument('--output_dir', type=str, default='analysis/effectiveness',
                         help='Directory to save consolidated graphs')
+    parser.add_argument('--teacher_model', type=str, default=None,
+                        help='Dummy argument for compatibility with run_analysis.py')
     
     return parser.parse_args()
 

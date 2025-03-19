@@ -20,6 +20,7 @@ def run_script(script_path, args=None):
 def main():
     parser = argparse.ArgumentParser(description="Run all analysis scripts")
     parser.add_argument("--skip", nargs="+", help="Scripts to skip (without .py extension)")
+    parser.add_argument("--teacher_model", type=str, help="Path to teacher model (e.g., 'model_epoch_10.pt')")
     args = parser.parse_args()
 
     # Get the directory containing this script
@@ -39,11 +40,16 @@ def main():
         analysis_scripts = [s for s in analysis_scripts 
                           if Path(s).stem not in args.skip]
 
+    # Prepare common arguments for all scripts
+    script_args = []
+    if args.teacher_model:
+        script_args.extend(["--teacher_model", args.teacher_model])
+
     # Run each analysis script
     for script in analysis_scripts:
         script_path = analysis_dir / script
         if script_path.exists():
-            run_script(script_path)
+            run_script(script_path, script_args)
         else:
             print(f"Warning: {script} not found")
 
