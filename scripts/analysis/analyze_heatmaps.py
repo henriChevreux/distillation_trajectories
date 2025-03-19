@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to analyze the impact of Classifier-Free Guidance (CFG) across different model sizes.
-This script uses the enhanced trajectory generation function to ensure consistency with radar plots.
+This script uses the trajectory generation function to ensure consistency with radar plots.
 """
 
 import os
@@ -18,12 +18,12 @@ sys.path.insert(0, project_root)
 
 from config.config import Config
 from models import DiffusionUNet
-from analysis.enhanced_trajectory_comparison import compare_trajectories
+from analysis.trajectory_engine import compare_trajectories
 
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description='Analyze CFG impact across different model sizes using enhanced trajectory generation',
+        description='Analyze CFG impact across different model sizes using trajectory generation',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -227,7 +227,7 @@ def visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales):
     print(f"Saved combined heatmap to {output_path}")
 
 def main():
-    """Main function to run the enhanced CFG impact analysis"""
+    """Main function to run the CFG impact analysis"""
     args = parse_args()
     
     # Load configuration
@@ -286,7 +286,7 @@ def main():
         student_model = student_model.to(device)
         student_model.eval()
         
-        # Compute CFG impact for this size factor using the enhanced trajectory comparison
+        # Compute CFG impact for this size factor using the trajectory engine
         print(f"Computing CFG impact for size factor {size_factor}...")
         metrics = compare_trajectories(
             teacher_model, 
@@ -301,10 +301,10 @@ def main():
         metrics_by_size[size_factor] = metrics
     
     # Visualize CFG impact
-    print("\nVisualizing CFG impact...")
+    print("\nVisualizing CFG heatmaps...")
     visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales)
     
-    print(f"\nEnhanced CFG impact analysis completed")
+    print(f"\nCFG heatmap analysis completed")
     print(f"Results saved in {output_dir}")
 
 if __name__ == "__main__":

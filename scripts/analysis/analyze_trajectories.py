@@ -19,7 +19,7 @@ sys.path.insert(0, project_root)
 
 from config.config import Config
 from models import DiffusionUNet
-from analysis.enhanced_trajectory_comparison import generate_trajectory
+from analysis.trajectory_engine import generate_trajectory
 from utils.diffusion import get_diffusion_params
 
 def parse_args():
