@@ -371,16 +371,20 @@ def create_composite_radar_plot(metrics_by_size, output_dir, guidance_scales):
                 else:
                     values.append(transformed_metrics[metric_key])
             
+            # Make sure angles and values have the same length before closing the plot
+            plot_angles = angles.copy()
+            plot_values = values.copy()
+            
             # Close the plot by repeating first value
-            values = np.concatenate((values, [values[0]]))
-            angles = np.concatenate((angles, [angles[0]]))
+            plot_values = np.concatenate((plot_values, [plot_values[0]]))
+            plot_angles = np.concatenate((plot_angles, [plot_angles[0]]))
             
             # Plot with label
-            ax.plot(angles, values, 'o-', linewidth=2, label=f'Size: {size_factor:.2f}')
-            ax.fill(angles, values, alpha=0.1)
+            ax.plot(plot_angles, plot_values, 'o-', linewidth=2, label=f'Size: {size_factor:.2f}')
+            ax.fill(plot_angles, plot_values, alpha=0.1)
         
-        # Set labels
-        ax.set_xticks(angles[:-1])
+        # Set labels using original angles (without the closing point)
+        ax.set_xticks(angles)
         ax.set_xticklabels([label for _, label in metrics_to_analyze])
         
         # Set title and legend
