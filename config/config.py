@@ -19,8 +19,8 @@ class Config:
         self.learn_sigma = True  # Added learn sigma parameter
         
         # Diffusion process
-        self.sample_steps = 4000  # Total number of sample steps in the diffusion process
-        self.timesteps = 50  # Number of discrete timesteps used in the diffusion process
+        self.sample_steps = 100  # Total number of sample steps in the diffusion process
+        self.timesteps = 100  # Number of discrete timesteps used in the diffusion process
         self.beta_start = 1e-4
         self.beta_end = 0.02
         self.noise_schedule = "cosine"  # Added noise schedule parameter

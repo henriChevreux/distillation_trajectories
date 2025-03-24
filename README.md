@@ -1,136 +1,23 @@
-# Diffusion Model Analysis Toolkit
+# Trajectory Distillation Analysis
 
-A comprehensive toolkit for analyzing diffusion models with a focus on model size impact.
+This repository contains tools for analyzing and visualizing trajectory metrics in diffusion models, with a focus on model size comparisons and Classifier-Free Guidance (CFG) impact.
 
-## 📋 Table of Contents
+## Training
 
-- [Diffusion Model Analysis Toolkit](#diffusion-model-analysis-toolkit)
-  - [📋 Table of Contents](#-table-of-contents)
-  - [🔍 Overview](#-overview)
-  - [✨ Features](#-features)
-  - [📦 Installation](#-installation)
-  - [📁 Project Structure](#-project-structure)
-  - [🚀 Quick Start](#-quick-start)
-  - [📖 Usage Guide](#-usage-guide)
-    - [Training Models](#training-models)
-      - [Teacher Model](#teacher-model)
-      - [Student Models](#student-models)
-    - [Running Analysis](#running-analysis)
-    - [CPU Mode](#cpu-mode)
-    - [Testing](#testing)
-  - [⚙️ Configuration](#️-configuration)
-  - [🏗️ UNet Architecture Specifications](#️-unet-architecture-specifications)
-  - [📊 Analysis Outputs](#-analysis-outputs)
-    - [Trajectory Comparison Visualization](#trajectory-comparison-visualization)
-    - [Trajectory Radar Plot Analysis](#trajectory-radar-plot-analysis)
-    - [Classifier-Free Guidance (CFG) Analysis](#classifier-free-guidance-cfg-analysis)
-  - [❓ Troubleshooting](#-troubleshooting)
-  - [📄 License](#-license)
-  - [📝 Citation](#-citation)
-
-## 🔍 Overview
-
-This toolkit enables detailed comparison between teacher diffusion models and student models of varying sizes. It answers the question: "How does model size impact the quality, efficiency, and behavior of diffusion models?"
-
-The toolkit includes advanced visualization tools for comparing model trajectories in latent space, providing insights into how different-sized models traverse the denoising process. By using consistent reference frames for PCA visualization, the toolkit ensures accurate and meaningful comparisons between teacher and student models.
-
-## ✨ Features
-
-- **Performance analysis across model sizes**: Compare metrics as model size changes
-- **Model efficiency evaluation**: Analyze performance-to-parameter ratio
-- **Student models with varying architectures**: Size factors from 0.01 to 1.0
-- **Detailed visualizations**: Charts showing performance trends
-- **Comprehensive metrics**: Trajectory analysis, FID scores, efficiency measurements
-- **Multi-device support**: CUDA, MPS, CPU
-- **Trajectory comparison**: PCA-based visualization of model trajectories with consistent reference frames
-- **Deterministic verification**: Tools to verify trajectory determinism and model consistency
-- **Classifier-Free Guidance analysis**: Visualize and quantify the impact of CFG on model trajectories
-
-## 📦 Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/diffusion-model-analysis.git
-cd diffusion-model-analysis
-```
-
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-## 📁 Project Structure
-
-```
-distillation_trajectories/
-├── analysis/                  # Analysis modules
-│   ├── dimensionality/        # Dimensionality reduction analysis
-│   ├── metrics/               # Trajectory metrics
-│   ├── cfg_trajectory_comparison/ # CFG trajectory analysis
-│   └── ...                    # Other analysis types
-├── config/                    # Configuration
-├── data/                      # Data handling
-├── models/                    # Model definitions
-├── output/                    # All output files
-│   ├── models/                # Models directory
-│   │   ├── teacher/           # Teacher models
-│   │   └── students/          # Student models by size
-│   └── results/               # Training results
-├── scripts/                   # Executable scripts
-├── testing/                   # Testing utilities
-└── utils/                     # Utility functions
-```
-
-## 🚀 Quick Start
-
-Train a teacher model, then student models, and run analysis:
-
-```bash
-# Train the teacher model
-python scripts/train_teacher.py
-
-# Train student models with various size factors
-python scripts/train_students.py
-
-# Run analysis (runs all analysis scripts by default)
-python scripts/run_analysis.py
-
-# Run a specific analysis script
-python scripts/analyze_trajectories.py
-```
-
-## 📖 Usage Guide
-
-### Training Models
-
-#### Teacher Model
-
-Train the full-sized teacher diffusion model:
-
+### Teacher Model
 ```bash
 python scripts/train_teacher.py [OPTIONS]
 ```
-
 Options:
 - `--epochs N`: Number of training epochs (default: 10)
 - `--image_size N`: Size of images (default: 16)
 - `--batch_size N`: Batch size (default: 64)
 - `--timesteps N`: Number of diffusion timesteps (default: 50)
 
-#### Student Models
-
-Train student models with various size factors:
-
+### Student Models
 ```bash
 python scripts/train_students.py [OPTIONS]
 ```
-
 Options:
 - `--epochs N`: Number of training epochs (default: 5, half of teacher epochs)
 - `--custom_size_factors "0.1,0.5,0.9"`: Specific size factors to train (default: [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
@@ -143,313 +30,101 @@ Student models are organized by size factor and architecture type:
 - **Medium** (0.3-0.7): 3 layers with 75% of teacher dimensions
 - **Full** (0.7-1.0): Same architecture as teacher
 
-### Running Analysis
+## Analysis Scripts
 
-Run comprehensive analysis on trained models:
-
+### Trajectory Metrics Analysis
 ```bash
-python scripts/run_analysis.py [OPTIONS]
+python scripts/analysis/analyze_trajectory_metrics.py --teacher_model model_epoch_200.pt
+```
+This script generates:
+- Heatmaps showing the impact of CFG across different model sizes and guidance scales
+- Radar plots comparing trajectory metrics across model sizes
+- A composite radar plot showing all model sizes together
+
+Key metrics analyzed:
+- Path Length Similarity
+- Trajectory MSE Similarity
+- Directional Consistency
+- Distribution Similarity
+
+Output files will be saved in:
+```
+output/analysis/model_comparisons/
+├── radar_plot_grid.png
+├── composite_radar_plot.png
+├── cfg_heatmap_path_length_similarity.png
+├── cfg_heatmap_trajectory_mse.png
+├── cfg_heatmap_mean_directional_consistency.png
+├── cfg_heatmap_distribution_similarity.png
+└── cfg_heatmap_combined.png
 ```
 
-Options:
-- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
-- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
-
-Examples:
+### Dimensionality Analysis
 ```bash
-# Run all analysis with default teacher model
-python scripts/run_analysis.py
-
-# Run analysis with specific teacher model
-python scripts/run_analysis.py --teacher_model model_epoch_5.pt
-
-# Skip specific scripts
-python scripts/run_analysis.py --skip analyze_heatmaps analyze_radars
-
-# Combine options
-python scripts/run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
+python scripts/analysis/analyze_dimensionality.py --teacher_model model_epoch_200.pt
 ```
+Analyzes the dimensionality of the latent space and generates visualizations.
 
-This will run the following analysis scripts in sequence:
-1. `analyze_heatmaps.py`: Generate heatmap visualizations
-2. `analyze_trajectories.py`: Analyze trajectory patterns
-3. `analyze_radars.py`: Generate radar plot visualizations
-4. `analyze_effectiveness.py`: Analyze model effectiveness metrics
-
-### CPU Mode
-
-Force any script to run on CPU (useful for systems without GPU):
-
+### Noise Prediction Analysis
 ```bash
-python scripts/run_on_cpu.py SCRIPT [--args "SCRIPT_ARGS"]
+python scripts/analysis/analyze_noise_prediction.py --teacher_model model_epoch_200.pt
 ```
+Analyzes noise prediction patterns across different model sizes.
 
-Examples:
+### Time-Dependent Analysis
 ```bash
-python scripts/run_on_cpu.py train_teacher
-python scripts/run_on_cpu.py train_students --args "--custom_size_factors 0.1,0.5"
-python scripts/run_on_cpu.py run_analysis --args "--num_samples 5 --skip_fid"
+python scripts/analysis/analyze_time_dependent.py --teacher_model model_epoch_200.pt
 ```
+Analyzes how trajectory metrics evolve over time during the diffusion process.
 
-### Testing
-
-Run tests to verify the diffusion model implementation:
-
+### FID Score Analysis
 ```bash
-python testing/test_diffusion.py
+python scripts/analysis/analyze_fid.py --teacher_model model_epoch_200.pt
+```
+Calculates and visualizes Fréchet Inception Distance (FID) scores across model sizes.
+
+## Directory Structure
+```
+analysis/
+├── metrics/           # Metric computation functions
+├── dimensionality/    # Dimensionality analysis tools
+├── noise_prediction/  # Noise prediction analysis
+├── visualization/     # Visualization utilities
+└── __init__.py       # Package initialization
+
+scripts/
+├── train_teacher.py   # Teacher model training
+├── train_students.py  # Student models training
+└── analysis/         # Analysis scripts
+
+output/
+└── analysis/         # Analysis results
+    ├── metrics/      # Basic trajectory metrics
+    ├── model_comparisons/  # Radar plots and heatmaps
+    ├── time_dependent/    # Time-dependent analysis
+    ├── size_dependent/    # Size-dependent analysis
+    ├── dimensionality/    # Dimensionality analysis
+    ├── latent_space/      # Latent space visualizations
+    ├── attention/         # Attention analysis
+    ├── noise_prediction/  # Noise prediction analysis
+    ├── denoising/        # Denoising analysis
+    └── fid/              # FID score analysis
 ```
 
-## ⚙️ Configuration
-
-The project uses a centralized configuration system in `config/config.py`:
-
-```python
-from config.config import Config
-
-config = Config()
-config.create_directories()  # Creates all necessary directories
-
-# Access paths
-models_dir = config.models_dir
-results_dir = config.results_dir
-```
-
-## 🏗️ UNet Architecture Specifications
-
-This project uses the following UNet architecture parameters for CIFAR10 diffusion models:
-
-### Model Configuration
-| Parameter | Value |
-|-----------|-------|
-| Image size | 32 × 32 |
-| Number of channels | 3 |
-| Base channels | 128 |
-| Channel multipliers | [1, 2, 2, 2] |
-| Number of residual blocks | 3 |
-| Dropout | 0.3 |
-
-### Diffusion Process Parameters
-| Parameter | Value |
-|-----------|-------|
-| Training diffusion steps | 4000 |
-| Sampling timesteps | 50 |
-| Noise schedule | cosine |
-
-### Training Configuration
-| Parameter | Value |
-|-----------|-------|
-| Learning rate | 1 × 10⁻⁴ |
-| Batch size | 128 |
-| Optimizer | Adam (β₁=0.8, β₂=0.999) |
-| EMA rate | 0.9999 |
-
-### Progressive Distillation Parameters
-| Parameter | Value |
-|-----------|-------|
-| Teacher timesteps | 50 |
-| Student timesteps | 50 |
-
-### Understanding Diffusion Steps vs. Sampling Timesteps
-
-There's an important distinction between:
-- **Training diffusion steps (4000)**: The total number of noise addition steps in the original diffusion process during training
-- **Sampling timesteps (50)**: The actual number of steps used when generating images during inference
-
-Progressive distillation allows us to train on the full 4000-step diffusion process, but generate high-quality samples using only 50 steps. This significantly accelerates the sampling process while maintaining image quality.
-
-These parameters are based on research from:
-1. Ho et al. (2020). Denoising diffusion probabilistic models. NeurIPS.
-2. Nichol & Dhariwal (2021). Improved denoising diffusion probabilistic models. ICML.
-3. Salimans & Ho (2022). Progressive distillation for fast sampling of diffusion models. ICLR.
-4. Song et al. (2020). Denoising diffusion implicit models. ICLR.
-
-A detailed LaTeX document with these specifications is available in `unet_architecture.tex`.
-
-## 📊 Analysis Outputs
-
-All analysis results are organized in the `output/analysis/` directory:
-
-- **Trajectory Metrics** (`metrics/`): Path length, Wasserstein distance, endpoint distance
-- **Comparative Visualizations** (`visualization/`): Plots showing metrics vs model size
-- **FID Scores** (`fid/`): Fréchet Inception Distance measurements
-- **Dimensionality Reduction** (`dimensionality/`): PCA, t-SNE, and UMAP projections
-- **Attention Analysis** (`attention/`): Attention map visualizations
-- **Noise Prediction** (`noise/`): Analysis of noise prediction patterns
-- **Trajectory Comparison** (`trajectory_comparison/`): Direct visual comparison of teacher and student model trajectories
-- **CFG Trajectory Analysis** (`cfg_trajectory_comparison/`): Analysis of how Classifier-Free Guidance affects model trajectories
-
-### Trajectory Comparison Visualization
-
-The trajectory comparison module provides a direct visual comparison of how teacher and student models traverse the latent space during the denoising process. Key features include:
-
-- **PCA-based Visualization**: Reduces high-dimensional trajectories to 2D and 3D visualizations for easy interpretation
-- **Consistent Reference Frame**: Uses the teacher model's trajectory as the reference frame for PCA, ensuring proper alignment between trajectories
-- **MSE Verification**: Calculates and reports the Mean Squared Error between trajectories to quantify similarity
-- **Deterministic Trajectories**: Ensures reproducible results by using fixed random seeds for noise generation
-- **Size Factor Comparison**: Allows comparison of trajectories across different student model size factors
-
-This visualization is particularly useful for understanding how well student models mimic the teacher's behavior in latent space. For size factor 1.0, trajectories should be nearly identical, while smaller models may show deviations that help explain performance differences.
-
-To run a trajectory comparison:
-
-```bash
-python scripts/run_trajectory_comparison.py --size_factors 0.3,1.0
-```
-
-For verification of trajectory determinism:
-
-```bash
-python scripts/run_trajectory_verification.py
-```
-
-### Trajectory Radar Plot Analysis
-
-The trajectory radar plot analysis provides a comprehensive visualization of key metrics across different model sizes using radar plots. This approach directly generates trajectories for each model and computes metrics based on those trajectories, ensuring a fair and consistent comparison.
-
-#### Key Features
-
-- **Direct Trajectory Generation**: Generates trajectories on-the-fly for each model using the same starting noise
-- **Multi-sample Averaging**: Averages metrics across multiple samples for more robust results
-- **Radar Plot Visualization**: Creates both individual and composite radar plots showing four key metrics:
-  - **Path Length Similarity**: How similar the student's trajectory length is to the teacher's
-  - **Endpoint Alignment**: How close the student's final image is to the teacher's
-  - **Directional Consistency**: How consistently the student follows the teacher's direction
-  - **Distribution Similarity**: Overall similarity between student and teacher trajectories
-- **Raw Metrics Option**: Can display metrics in their raw form without normalization for more accurate comparisons
-- **Customizable Size Factors**: Analyze any combination of model sizes
-
-#### Running Trajectory Radar Analysis
-
-To generate radar plots based on directly generated trajectories:
-
-```bash
-python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
-```
-
-By default, the script uses min-max scaling to normalize metrics to a [0,1] scale. To skip this normalization and use raw metrics instead (recommended for more accurate comparisons):
-
-```bash
-python scripts/edit_model_comparisons.py --skip_minmax
-python scripts/run_trajectory_radar.py --size_factors "0.1,0.4,0.7,1.0" --num_samples 5
-```
-
-This will modify the model_comparisons.py file to use raw metrics instead of min-max scaling, providing a more direct representation of model performance differences.
-
-Options:
-- `--size_factors`: Comma-separated list of student model size factors to analyze
-- `--num_samples`: Number of trajectory samples to generate and average metrics over
-- `--teacher_model`: Path to teacher model relative to models directory (default: model_epoch_10.pt)
-- `--timesteps`: Number of timesteps for the diffusion process (default: 50)
-- `--output_dir`: Directory to save analysis results (default: analysis/trajectory_radar)
-
-The results are saved in the specified output directory:
-- `model_comparisons/radar_plot_grid.png`: Grid of individual radar plots for each model size
-- `model_comparisons/composite_radar_plot.png`: Single radar plot showing all model sizes together
-
-This analysis provides a more direct and accurate comparison of model performance than the standard analysis pipeline, as it ensures all models are evaluated on exactly the same trajectories.
-
-### Classifier-Free Guidance (CFG) Analysis
-
-The CFG analysis module examines how Classifier-Free Guidance affects the trajectories of diffusion models and compares the impact across different model sizes. This analysis is crucial for understanding how guidance scales influence both teacher and student models.
-
-#### What is Classifier-Free Guidance?
-
-Classifier-Free Guidance (CFG) is a technique that improves sample quality in diffusion models by combining conditional and unconditional generation. During the sampling process, the model prediction is adjusted using:
-
-```
-prediction = unconditional_prediction + guidance_scale * (conditional_prediction - unconditional_prediction)
-```
-
-Where `guidance_scale` (w) controls the strength of the guidance. Higher values typically result in higher-quality but less diverse samples.
-
-#### Key Features of CFG Analysis
-
-- **Multi-scale Guidance**: Analyzes trajectories across different guidance scales (1.0, 3.0, 5.0, 7.0)
-- **Comparative Visualization**: Directly compares trajectories with and without CFG
-- **Similarity Metrics**: Quantifies the impact of CFG using cosine similarity and Euclidean distance
-- **Trajectory Divergence**: Visualizes how CFG causes trajectories to diverge from the non-guided path
-- **Teacher-Student Comparison**: Examines how CFG affects teacher vs. student models differently
-- **Final Image Comparison**: Shows the visual impact of different guidance scales on generated images
-
-#### Visualizations Included
-
-1. **Combined CFG Trajectories**: Shows all guidance scales in a single plot with a color gradient
-2. **CFG vs. No-CFG Trajectories**: Compares guided and non-guided trajectories for each scale
-3. **CFG vs. No-CFG Final Images**: Grid of final images comparing different guidance scales
-4. **CFG Similarity Metrics**: Plots showing how similarity between guided and non-guided trajectories changes with guidance scale
-5. **Trajectory Divergence**: Vector field visualization showing how CFG causes trajectories to diverge
-6. **Teacher-Student Similarity**: Analysis of how CFG affects the similarity between teacher and student models
-
-#### Running CFG Analysis
-
-To run the CFG trajectory comparison:
-
-```bash
-python scripts/run_cfg_trajectory_comparison.py --guidance_scales "1.0,3.0,5.0,7.0" --size_factors "0.3,1.0" --student_models "size_0.3/model_epoch_5.pt,size_1.0/model_epoch_5.pt"
-```
-
-Options:
-- `--guidance_scales`: Comma-separated list of guidance scales to analyze
-- `--size_factors`: Comma-separated list of student model size factors to analyze
-- `--student_models`: Comma-separated list of student model paths (relative to the students directory)
-
-The results are organized by epoch in the `output/analysis/cfg_trajectory_comparison/` directory.
-
-## ❓ Troubleshooting
-
-Common issues:
-- **GPU not detected**: Use `scripts/run_on_cpu.py` to force CPU usage
-- **Model not found**: Check paths in `config.py` and ensure models are trained
-- **Memory errors**: Reduce batch size or number of samples
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## 📝 Citation
-
-If you use this toolkit in your research, please cite:
-
-```bibtex
-@misc{diffusion_analysis_toolkit,
-  title={Diffusion Model Analysis Toolkit},
-  author={Your Name},
-  year={2024}
-}
-
-```
-
-## Analysis
-
-### Running All Analysis Scripts
-
-The `run_analysis.py` script provides a convenient way to run all analysis scripts in sequence:
-
-```bash
-python run_analysis.py [OPTIONS]
-```
-
-Options:
-- `--teacher_model MODEL_PATH`: Specify the teacher model to use (e.g., 'model_epoch_10.pt')
-- `--skip SCRIPT1 SCRIPT2 ...`: Skip specific analysis scripts (without .py extension)
-
-Examples:
-```bash
-# Run all analysis with default teacher model
-python run_analysis.py
-
-# Run analysis with specific teacher model
-python run_analysis.py --teacher_model model_epoch_5.pt
-
-# Skip specific scripts
-python run_analysis.py --skip analyze_heatmaps analyze_radars
-
-# Combine options
-python run_analysis.py --teacher_model model_epoch_5.pt --skip analyze_heatmaps
-```
-
-This will run the following analysis scripts in sequence:
-1. `analyze_heatmaps.py`: Generate heatmap visualizations
-2. `analyze_trajectories.py`: Analyze trajectory patterns
-3. `analyze_radars.py`: Generate radar plot visualizations
-4. `analyze_effectiveness.py`: Analyze model effectiveness metrics
+## Dependencies
+- Python 3.8+
+- PyTorch
+- NumPy
+- Matplotlib
+- scikit-learn
+
+## Usage
+1. Train the teacher model using `train_teacher.py`
+2. Train student models using `train_students.py`
+3. Run the desired analysis script with appropriate arguments
+4. Results will be saved in the specified output directory
+
+## Notes
+- All metrics are normalized to [0,1] range for consistent visualization
+- CFG impact is analyzed using guidance scales from 1.0 (no CFG) to 20.0
+- Model sizes range from 0.05 to 1.0 (full size)

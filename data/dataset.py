@@ -14,7 +14,6 @@ def get_data_loader(config):
     """
     if config.dataset == "CIFAR10":
         # For CIFAR10, we need to normalize with the appropriate mean and std for RGB
-        # Also resize from 32x32 to 16x16 for faster training
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize((config.image_size, config.image_size)),

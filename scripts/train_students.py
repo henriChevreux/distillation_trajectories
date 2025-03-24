@@ -12,6 +12,7 @@ import torch.optim as optim
 import torchvision
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import glob
 
 import sys
 import os
@@ -20,7 +21,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config.config import Config
-from models import SimpleUNet, StudentUNet
+from models import SimpleUNet, StudentUNet, DiffusionUNet
 from utils.diffusion import get_diffusion_params, q_sample, p_sample_loop
 from data.dataset import get_data_loader
 
@@ -231,23 +232,19 @@ def train_students(config, custom_size_factors=None):
     student_params = get_diffusion_params(config.student_steps, config)
     
     # Check if teacher model exists - try both new and old paths for backward compatibility
-    teacher_model_path = os.path.join(config.teacher_models_dir, 'model_epoch_1.pt')
-    old_teacher_model_path = os.path.join(config.models_dir, 'model_epoch_1.pt')
-    
-    # Check new path first, then fall back to old path
+    teacher_model_path = os.path.join(config.teacher_models_dir, 'model_epoch_200.pt')
+
+    # Check if the fixed epoch model exists
     if os.path.exists(teacher_model_path):
-        print(f"Found teacher model at {teacher_model_path}")
-    elif os.path.exists(old_teacher_model_path):
-        print(f"Found teacher model at old location {old_teacher_model_path}")
-        teacher_model_path = old_teacher_model_path
+        print(f"Using fixed teacher model at {teacher_model_path} (epoch 45)")
     else:
-        print("\nERROR: Teacher model not found at", teacher_model_path)
-        print("Please train the teacher model first by running:")
+        print("\nERROR: Teacher model epoch 45 not found at", teacher_model_path)
+        print("Please train the teacher model to at least 45 epochs by running:")
         print("\n    python scripts/train_teacher.py\n")
         return
-    
+
     # Load teacher model
-    print(f"Loading existing teacher model from {teacher_model_path}...")
+    print(f"Loading teacher model from {teacher_model_path}...")
     teacher_model = SimpleUNet(config).to(device)
     teacher_model.load_state_dict(torch.load(teacher_model_path, map_location=device))
     teacher_model.eval()

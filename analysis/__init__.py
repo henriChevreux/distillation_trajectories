@@ -1,14 +1,30 @@
 """
-Analysis module for diffusion model trajectories
+Analysis package for trajectory distillation.
 """
 
+from config.config import Config
+from models import DiffusionUNet
+from analysis.trajectory_engine import compare_trajectories
 from analysis.metrics.trajectory_metrics import compute_trajectory_metrics, visualize_metrics, visualize_batch_metrics
 from analysis.dimensionality.dimensionality_reduction import dimensionality_reduction_analysis
 from analysis.noise_prediction.noise_analysis import analyze_noise_prediction
 from analysis.dimensionality.latent_space import generate_latent_space_visualization
 from analysis.visualization.model_size_viz import generate_3d_model_size_visualization
-from analysis.metrics.model_comparisons import create_model_size_comparisons
-from analysis.metrics.fid_score import calculate_and_visualize_fid 
+from analysis.metrics.fid_score import calculate_and_visualize_fid
+
+__all__ = [
+    'Config',
+    'DiffusionUNet',
+    'compare_trajectories',
+    'compute_trajectory_metrics',
+    'visualize_metrics',
+    'visualize_batch_metrics',
+    'dimensionality_reduction_analysis',
+    'analyze_noise_prediction',
+    'generate_latent_space_visualization',
+    'generate_3d_model_size_visualization',
+    'calculate_and_visualize_fid'
+]
 
 # Add missing function imports
 # Time-dependent analysis functions

@@ -122,7 +122,7 @@ def compare_trajectories(teacher_model, student_model, config, guidance_scales=[
         teacher_model: The teacher diffusion model
         student_model: The student diffusion model
         config: Configuration object
-        guidance_scales: List of guidance scales to evaluate
+        guidance_scales: List of guidance scales to evaluate (1.0 means no CFG)
         size_factor: Size factor of the student model
         num_samples: Number of noise samples to average over
         
@@ -137,8 +137,6 @@ def compare_trajectories(teacher_model, student_model, config, guidance_scales=[
     # Initialize dictionaries to store metrics
     teacher_metrics = {gs: [] for gs in guidance_scales}
     student_metrics = {gs: [] for gs in guidance_scales}
-    teacher_no_cfg_metrics = []
-    student_no_cfg_metrics = []
     
     # Generate trajectories for multiple noise samples
     for sample_idx in range(num_samples):
@@ -150,26 +148,8 @@ def compare_trajectories(teacher_model, student_model, config, guidance_scales=[
         # Generate random noise
         noise = torch.randn(1, config.channels, config.image_size, config.image_size)
         
-        # Generate trajectories without CFG
-        print(f"\nGenerating trajectories without CFG (sample {sample_idx+1}/{num_samples})...")
-        print("Generating teacher trajectory...")
-        teacher_no_cfg = generate_trajectory(teacher_model, noise, config.timesteps, device, seed=seed)
-        print("Generating student trajectory...")
-        student_no_cfg = generate_trajectory(student_model, noise, config.timesteps, device, seed=seed)
-        
-        # Compute metrics between teacher and student without CFG
-        no_cfg_metrics = compute_trajectory_metrics(teacher_no_cfg, student_no_cfg, config)
-        teacher_no_cfg_metrics.append(no_cfg_metrics)
-        student_no_cfg_metrics.append(no_cfg_metrics)
-        
-        # Generate trajectories with CFG for each guidance scale
+        # Generate trajectories for each guidance scale
         for gs in guidance_scales:
-            if gs <= 1.0:
-                # Skip CFG for guidance scale 1.0 (equivalent to no CFG)
-                teacher_metrics[gs].append(no_cfg_metrics)
-                student_metrics[gs].append(no_cfg_metrics)
-                continue
-                
             print(f"\nGenerating trajectories with guidance scale {gs} (sample {sample_idx+1}/{num_samples})...")
             
             print("Generating teacher trajectory...")
@@ -178,33 +158,23 @@ def compare_trajectories(teacher_model, student_model, config, guidance_scales=[
             print("Generating student trajectory...")
             student_traj = generate_trajectory(student_model, noise, config.timesteps, device, seed=seed, guidance_scale=gs)
             
-            # Compute metrics between teacher and student with CFG
-            cfg_metrics = compute_trajectory_metrics(teacher_traj, student_traj, config)
-            teacher_metrics[gs].append(cfg_metrics)
-            student_metrics[gs].append(cfg_metrics)
+            # Compute metrics between teacher and student
+            metrics = compute_trajectory_metrics(teacher_traj, student_traj, config)
+            teacher_metrics[gs].append(metrics)
+            student_metrics[gs].append(metrics)
     
     # Average metrics across samples
-    avg_teacher_no_cfg = {}
-    avg_student_no_cfg = {}
-    avg_teacher_cfg = {gs: {} for gs in guidance_scales}
-    avg_student_cfg = {gs: {} for gs in guidance_scales}
+    avg_teacher_metrics = {gs: {} for gs in guidance_scales}
+    avg_student_metrics = {gs: {} for gs in guidance_scales}
     
-    # Average no-CFG metrics
-    for key in teacher_no_cfg_metrics[0].keys():
-        if isinstance(teacher_no_cfg_metrics[0][key], (int, float)) and not isinstance(teacher_no_cfg_metrics[0][key], bool):
-            avg_teacher_no_cfg[key] = sum(m[key] for m in teacher_no_cfg_metrics) / len(teacher_no_cfg_metrics)
-            avg_student_no_cfg[key] = sum(m[key] for m in student_no_cfg_metrics) / len(student_no_cfg_metrics)
-    
-    # Average CFG metrics
+    # Average metrics for each guidance scale
     for gs in guidance_scales:
         for key in teacher_metrics[gs][0].keys():
             if isinstance(teacher_metrics[gs][0][key], (int, float)) and not isinstance(teacher_metrics[gs][0][key], bool):
-                avg_teacher_cfg[gs][key] = sum(m[key] for m in teacher_metrics[gs]) / len(teacher_metrics[gs])
-                avg_student_cfg[gs][key] = sum(m[key] for m in student_metrics[gs]) / len(student_metrics[gs])
+                avg_teacher_metrics[gs][key] = sum(m[key] for m in teacher_metrics[gs]) / len(teacher_metrics[gs])
+                avg_student_metrics[gs][key] = sum(m[key] for m in student_metrics[gs]) / len(student_metrics[gs])
     
     return {
-        'teacher_no_cfg': avg_teacher_no_cfg,
-        'student_no_cfg': avg_student_no_cfg,
-        'teacher_cfg': avg_teacher_cfg,
-        'student_cfg': avg_student_cfg
+        'teacher_metrics': avg_teacher_metrics,
+        'student_metrics': avg_student_metrics
     } 

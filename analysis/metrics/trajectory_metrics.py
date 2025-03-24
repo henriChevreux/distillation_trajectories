@@ -59,9 +59,34 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     mse = torch.mean((teacher_images[-1] - student_images[-1]) ** 2).item()
     metrics['mse'] = mse
     
+    # Compute MSE across entire trajectory
+    trajectory_mse = 0.0
+    min_length = min(len(teacher_images), len(student_images))
+    
+    # Get image dimensions for normalization
+    img_shape = teacher_images[0].shape
+    total_elements = img_shape[1] * img_shape[2] * img_shape[3]  # channels * height * width
+    
+    for i in range(min_length):
+        # Normalize by number of elements (channels * height * width)
+        step_mse = torch.mean((teacher_images[i] - student_images[i]) ** 2).item()
+        trajectory_mse += step_mse
+    
+    # Average over number of steps
+    trajectory_mse /= min_length
+    
+    # Apply scaling to make differences more apparent
+    scaling_factor = 1000  # Adjust this to make differences more visible
+    trajectory_mse *= scaling_factor
+    
+    # Convert to similarity (1 - MSE) and apply log transformation
+    trajectory_mse = 1.0 - trajectory_mse
+    trajectory_mse = np.log1p(trajectory_mse)
+    
+    metrics['trajectory_mse'] = trajectory_mse
+    
     # NEW METRIC 1: Point-by-point trajectory similarity
     # Calculate the average distance between corresponding points in the trajectories
-    min_length = min(len(teacher_images), len(student_images))
     point_distances = []
     
     for i in range(min_length):
@@ -86,21 +111,29 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     teacher_path_length = 0
     student_path_length = 0
     
-    for i in range(1, len(teacher_images)):
-        teacher_path_length += torch.norm(teacher_images[i] - teacher_images[i-1]).item()
+    # Get number of steps and image dimensions for normalization
+    num_steps = min(len(teacher_images), len(student_images))
+    img_size = teacher_images[0].shape[2:]  # Height and width
+    total_pixels = img_size[0] * img_size[1]
     
-    for i in range(1, len(student_images)):
-        student_path_length += torch.norm(student_images[i] - student_images[i-1]).item()
+    for i in range(1, num_steps):
+        # Normalize by number of pixels and number of steps
+        teacher_step = torch.norm(teacher_images[i] - teacher_images[i-1]).item() / total_pixels
+        student_step = torch.norm(student_images[i] - student_images[i-1]).item() / total_pixels
+        teacher_path_length += teacher_step
+        student_path_length += student_step
+    
+    # Average over number of steps
+    teacher_path_length /= (num_steps - 1)
+    student_path_length /= (num_steps - 1)
     
     metrics['teacher_path_length'] = teacher_path_length
     metrics['student_path_length'] = student_path_length
     
-    # Compute path length similarity (ratio closer to 1.0 is better)
-    path_length_ratio = student_path_length / teacher_path_length if teacher_path_length > 0 else float('inf')
-    metrics['path_length_ratio'] = path_length_ratio
-    
     # Calculate path length similarity (1.0 means identical lengths)
     path_length_similarity = min(teacher_path_length, student_path_length) / max(teacher_path_length, student_path_length) if max(teacher_path_length, student_path_length) > 0 else 1.0
+    # Apply log transformation to make differences more visible
+    path_length_similarity = np.log1p(path_length_similarity)
     metrics['path_length_similarity'] = path_length_similarity
     
     # Compute proper path efficiency with start-to-end distance for each model
@@ -115,6 +148,8 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     
     # Calculate efficiency similarity (1.0 means identical efficiency)
     efficiency_similarity = min(teacher_efficiency, student_efficiency) / max(teacher_efficiency, student_efficiency) if max(teacher_efficiency, student_efficiency) > 0 else 1.0
+    # Apply log transformation to make differences more visible
+    efficiency_similarity = np.log1p(efficiency_similarity)
     metrics['efficiency_similarity'] = efficiency_similarity
     
     # Compute velocity profile
@@ -283,6 +318,8 @@ def compute_trajectory_metrics(teacher_trajectory, student_trajectory, config=No
     # Lower Wasserstein distance means higher similarity
     # We'll use an exponential decay function to map Wasserstein to a similarity score
     distribution_similarity = np.exp(-metrics['mean_wasserstein'])
+    # Apply log transformation to make differences more visible
+    distribution_similarity = np.log1p(distribution_similarity)
     metrics['distribution_similarity'] = distribution_similarity
     
     return metrics

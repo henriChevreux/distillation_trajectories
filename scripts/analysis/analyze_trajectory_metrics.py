@@ -6,19 +6,24 @@ This script uses the trajectory generation function to ensure consistency with r
 
 import os
 import sys
+
+# Add the project root directory to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(project_root)
+
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from tqdm import tqdm
-
-# Add the project root directory to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-sys.path.insert(0, project_root)
+import matplotlib.gridspec as gridspec
+from matplotlib.gridspec import GridSpec
 
 from config.config import Config
 from models import DiffusionUNet
 from analysis.trajectory_engine import compare_trajectories
+from analysis.metrics.trajectory_metrics import compute_trajectory_metrics
+from utils.metric_transformations import transform_metrics
 
 def parse_args():
     """Parse command line arguments"""
@@ -30,13 +35,14 @@ def parse_args():
     # Model parameters
     parser.add_argument('--teacher_model', type=str, default='model_epoch_1.pt',
                         help='Path to teacher model relative to models directory')
-    parser.add_argument('--size_factors', type=str, default='0.1,0.2,0.4,0.6,0.8,1.0',
+    parser.add_argument('--size_factors', type=str, default='0.05,0.75,0.1,0.2,0.4,0.6,0.8,1.0',
                         help='Comma-separated list of size factors to compare')
-    parser.add_argument('--guidance_scales', type=str, default='1.0,2.0,3.0,5.0,7.0',
+    parser.add_argument('--guidance_scales', type=str, 
+                        default='1.0,2.0,3.0,5.0,7.5,10.0,15.0,20.0,30.0,50.0',
                         help='Comma-separated list of guidance scales to use')
-    parser.add_argument('--timesteps', type=int, default=50,
+    parser.add_argument('--timesteps', type=int, default=100,
                         help='Number of timesteps for the diffusion process')
-    parser.add_argument('--num_samples', type=int, default=3,
+    parser.add_argument('--num_samples', type=int, default=10,
                         help='Number of noise samples to average over')
     
     # Output parameters
@@ -63,7 +69,7 @@ def visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales):
     # Define metrics to analyze - using the same metrics and transformations as radar plots
     metrics_to_analyze = [
         ('path_length_similarity', 'Path Length Similarity', True, 'viridis'),  # True means higher is better
-        ('mse', 'MSE Similarity (1 - MSE)', True, 'viridis'),  # Converted to similarity
+        ('trajectory_mse', 'Trajectory MSE Similarity', True, 'viridis'),  # True means higher is better
         ('mean_directional_consistency', 'Directional Consistency', True, 'viridis'),
         ('distribution_similarity', 'Distribution Similarity', True, 'viridis')
     ]
@@ -79,17 +85,21 @@ def visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales):
             metrics = metrics_by_size[size_factor]
             
             for j, gs in enumerate(guidance_scales):
-                if metric_key == 'mse':
-                    # Convert MSE to similarity (1 - MSE) - same as in radar plots
-                    value = 1.0 - metrics['student_cfg'][gs][metric_key]
-                elif metric_key == 'mean_directional_consistency':
-                    # For directional consistency, use raw values without normalization
-                    # to match radar plots (which use values in range [-1, 1])
-                    value = metrics['student_cfg'][gs][metric_key]
+                # Get raw metric values
+                if metric_key == 'mean_directional_consistency':
+                    value = metrics['student_metrics'][gs][metric_key]
                 else:
-                    value = metrics['student_cfg'][gs][metric_key]
+                    value = metrics['student_metrics'][gs][metric_key]
                 
-                data[i, j] = value
+                # Apply transformations using shared utility
+                transformed_metrics = transform_metrics(
+                    metrics['student_metrics'][gs]['path_length_similarity'],
+                    metrics['student_metrics'][gs]['trajectory_mse'],
+                    metrics['student_metrics'][gs]['mean_directional_consistency'],
+                    metrics['student_metrics'][gs]['distribution_similarity']
+                )
+                
+                data[i, j] = transformed_metrics[metric_key]
         
         # Create custom colormap to match poster colors with enhanced contrast
         # From lighter teal/green to dark purple (matching the poster's gradient)
@@ -175,17 +185,21 @@ def visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales):
             metrics = metrics_by_size[size_factor]
             
             for j_gs, gs in enumerate(guidance_scales):
-                if metric_key == 'mse':
-                    # Convert MSE to similarity (1 - MSE) - same as in radar plots
-                    value = 1.0 - metrics['student_cfg'][gs][metric_key]
-                elif metric_key == 'mean_directional_consistency':
-                    # For directional consistency, use raw values without normalization
-                    # to match radar plots (which use values in range [-1, 1])
-                    value = metrics['student_cfg'][gs][metric_key]
+                # Get raw metric values
+                if metric_key == 'mean_directional_consistency':
+                    value = metrics['student_metrics'][gs][metric_key]
                 else:
-                    value = metrics['student_cfg'][gs][metric_key]
+                    value = metrics['student_metrics'][gs][metric_key]
                 
-                data[i_sf, j_gs] = value
+                # Apply transformations using shared utility
+                transformed_metrics = transform_metrics(
+                    metrics['student_metrics'][gs]['path_length_similarity'],
+                    metrics['student_metrics'][gs]['trajectory_mse'],
+                    metrics['student_metrics'][gs]['mean_directional_consistency'],
+                    metrics['student_metrics'][gs]['distribution_similarity']
+                )
+                
+                data[i_sf, j_gs] = transformed_metrics[metric_key]
         
         # Create heatmap with the custom colormap
         im = ax.imshow(data, cmap=poster_cmap, aspect='auto', interpolation='nearest')
@@ -225,6 +239,198 @@ def visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales):
     plt.close()
     
     print(f"Saved combined heatmap to {output_path}")
+
+def create_radar_plot_grid(metrics_by_size, output_dir, guidance_scales):
+    """
+    Create radar plots for each model size and guidance scale.
+    Uses consistent metric transformations with heatmap visualization.
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract size factors
+    size_factors = sorted(metrics_by_size.keys())
+    
+    # Define metrics to analyze - using the same metrics and transformations as heatmap
+    metrics_to_analyze = [
+        ('path_length_similarity', 'Path Length Similarity'),
+        ('trajectory_mse', 'Trajectory MSE Similarity'),
+        ('mean_directional_consistency', 'Directional Consistency'),
+        ('distribution_similarity', 'Distribution Similarity')
+    ]
+    
+    # Create a figure for each guidance scale
+    for gs in guidance_scales:
+        plt.figure(figsize=(15, 10))
+        
+        # Calculate grid dimensions
+        n_sizes = len(size_factors)
+        n_cols = min(3, n_sizes)
+        n_rows = (n_sizes + n_cols - 1) // n_cols
+        
+        # Create radar plots for each size
+        for idx, size_factor in enumerate(size_factors):
+            metrics = metrics_by_size[size_factor]
+            
+            # Get raw metric values
+            path_length_similarity = metrics['student_metrics'][gs]['path_length_similarity']
+            trajectory_mse = metrics['student_metrics'][gs]['trajectory_mse']
+            directional_consistency = metrics['student_metrics'][gs]['mean_directional_consistency']
+            distribution_similarity = metrics['student_metrics'][gs]['distribution_similarity']
+            
+            # Apply transformations using shared utility
+            transformed_metrics = transform_metrics(
+                path_length_similarity,
+                trajectory_mse,
+                directional_consistency,
+                distribution_similarity
+            )
+            
+            # Create radar plot
+            ax = plt.subplot(n_rows, n_cols, idx + 1, projection='polar')
+            
+            # Plot metrics
+            angles = np.linspace(0, 2*np.pi, len(metrics_to_analyze), endpoint=False)
+            values = []
+            for metric_key, _ in metrics_to_analyze:
+                if metric_key == 'mean_directional_consistency':
+                    values.append(transformed_metrics['mean_directional_consistency'])
+                else:
+                    values.append(transformed_metrics[metric_key])
+            
+            # Close the plot by repeating first value
+            values = np.concatenate((values, [values[0]]))
+            angles = np.concatenate((angles, [angles[0]]))
+            
+            ax.plot(angles, values, 'o-', linewidth=2)
+            ax.fill(angles, values, alpha=0.25)
+            
+            # Set labels
+            ax.set_xticks(angles[:-1])
+            ax.set_xticklabels([label for _, label in metrics_to_analyze])
+            
+            # Set title
+            ax.set_title(f'Size Factor: {size_factor:.2f}\nGuidance Scale: {gs:.1f}')
+            
+            # Set y-axis limits
+            ax.set_ylim(0, 1)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'radar_plots_gs_{gs:.1f}.png'))
+        plt.close()
+
+def create_composite_radar_plot(metrics_by_size, output_dir, guidance_scales):
+    """
+    Create a composite radar plot comparing all model sizes at a specific guidance scale.
+    Uses consistent metric transformations with heatmap visualization.
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract size factors
+    size_factors = sorted(metrics_by_size.keys())
+    
+    # Define metrics to analyze - using the same metrics and transformations as heatmap
+    metrics_to_analyze = [
+        ('path_length_similarity', 'Path Length Similarity'),
+        ('trajectory_mse', 'Trajectory MSE Similarity'),
+        ('mean_directional_consistency', 'Directional Consistency'),
+        ('distribution_similarity', 'Distribution Similarity')
+    ]
+    
+    # Create a figure for each guidance scale
+    for gs in guidance_scales:
+        plt.figure(figsize=(10, 10))
+        ax = plt.subplot(111, projection='polar')
+        
+        # Plot metrics for each size
+        angles = np.linspace(0, 2*np.pi, len(metrics_to_analyze), endpoint=False)
+        
+        for size_factor in size_factors:
+            metrics = metrics_by_size[size_factor]
+            
+            # Get raw metric values
+            path_length_similarity = metrics['student_metrics'][gs]['path_length_similarity']
+            trajectory_mse = metrics['student_metrics'][gs]['trajectory_mse']
+            directional_consistency = metrics['student_metrics'][gs]['mean_directional_consistency']
+            distribution_similarity = metrics['student_metrics'][gs]['distribution_similarity']
+            
+            # Apply transformations using shared utility
+            transformed_metrics = transform_metrics(
+                path_length_similarity,
+                trajectory_mse,
+                directional_consistency,
+                distribution_similarity
+            )
+            
+            # Get values for this size
+            values = []
+            for metric_key, _ in metrics_to_analyze:
+                if metric_key == 'mean_directional_consistency':
+                    values.append(transformed_metrics['mean_directional_consistency'])
+                else:
+                    values.append(transformed_metrics[metric_key])
+            
+            # Close the plot by repeating first value
+            values = np.concatenate((values, [values[0]]))
+            angles = np.concatenate((angles, [angles[0]]))
+            
+            # Plot with label
+            ax.plot(angles, values, 'o-', linewidth=2, label=f'Size: {size_factor:.2f}')
+            ax.fill(angles, values, alpha=0.1)
+        
+        # Set labels
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels([label for _, label in metrics_to_analyze])
+        
+        # Set title and legend
+        ax.set_title(f'Composite Radar Plot\nGuidance Scale: {gs:.1f}')
+        ax.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+        
+        # Set y-axis limits
+        ax.set_ylim(0, 1)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f'composite_radar_plot_gs_{gs:.1f}.png'))
+        plt.close()
+
+def create_radar_plot(metrics, title, output_path):
+    """Create a radar plot for a single model size"""
+    # Get raw metric values
+    path_length_similarity = metrics['path_length_similarity']
+    trajectory_mse = metrics['trajectory_mse']
+    directional_consistency = metrics['directional_consistency']
+    distribution_similarity = metrics['distribution_similarity']
+    
+    # Transform metrics using shared utility
+    path_length_score, mse_similarity, directional_score, distribution_score = transform_metrics(
+        path_length_similarity, trajectory_mse, directional_consistency, distribution_similarity
+    )
+    
+    # Combine the metrics into the order we want for the radar plot
+    values = [path_length_score, mse_similarity, directional_score, distribution_score]
+    
+    # Create radar plot
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
+    
+    # Plot values
+    angles = np.linspace(0, 2*np.pi, len(values), endpoint=False)
+    values = np.concatenate((values, [values[0]]))  # Close the plot
+    angles = np.concatenate((angles, [angles[0]]))  # Close the plot
+    
+    ax.plot(angles, values, 'o-', linewidth=2)
+    ax.fill(angles, values, alpha=0.25)
+    
+    # Set labels
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(['Path Length', 'MSE Similarity', 'Directional', 'Distribution'])
+    
+    # Set title
+    plt.title(title)
+    
+    # Save plot
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
 
 def main():
     """Main function to run the CFG impact analysis"""
@@ -304,7 +510,12 @@ def main():
     print("\nVisualizing CFG heatmaps...")
     visualize_cfg_heatmap(metrics_by_size, output_dir, guidance_scales)
     
-    print(f"\nCFG heatmap analysis completed")
+    # Create radar plots
+    print("\nCreating radar plots...")
+    create_radar_plot_grid(metrics_by_size, output_dir, guidance_scales)
+    create_composite_radar_plot(metrics_by_size, output_dir, guidance_scales)
+    
+    print(f"\nCFG analysis completed")
     print(f"Results saved in {output_dir}")
 
 if __name__ == "__main__":

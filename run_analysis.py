@@ -29,10 +29,11 @@ def main():
 
     # List of analysis scripts to run
     analysis_scripts = [
-        "analyze_heatmaps.py",
-        "analyze_trajectories.py",
-        "analyze_radars.py",
-        "analyze_effectiveness.py"
+        "analyze_trajectory_metrics.py",
+        "analyze_dimensionality.py",
+        "analyze_noise_prediction.py",
+        "analyze_time_dependent.py",
+        "analyze_fid.py"
     ]
 
     # Filter out skipped scripts
